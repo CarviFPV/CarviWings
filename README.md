@@ -24,7 +24,7 @@ the only thing the simulator needs from outside is a free Cesium ion token.
 ### 1. Install it
 
 Download `CarviWings_<version>_x64-setup.exe` from the
-[Releases page](https://github.com/CarviFPV/FPV-Wing-World-Simulator/releases)
+[Releases page](https://github.com/CarviFPV/CarviWings/releases)
 and install it, or take the `-portable.exe` beside it and run it as one file —
 that one installs nothing and can be carried on a stick.
 
@@ -88,8 +88,8 @@ on the machine — and the way to work on it. [Node.js](https://nodejs.org) 20.9
 or newer, npm and git are all it needs.
 
 ```bash
-git clone https://github.com/CarviFPV/FPV-Wing-World-Simulator.git
-cd FPV-Wing-World-Simulator
+git clone https://github.com/CarviFPV/CarviWings.git
+cd CarviWings
 npm install
 npm run dev                    # http://localhost:3000
 ```
@@ -107,8 +107,8 @@ callsign. Nothing else has to be set up.
 **A branch rather than `main`.** Clone the branch straight away:
 
 ```bash
-git clone -b <branch> https://github.com/CarviFPV/FPV-Wing-World-Simulator.git
-cd FPV-Wing-World-Simulator
+git clone -b <branch> https://github.com/CarviFPV/CarviWings.git
+cd CarviWings
 npm install
 npm run dev
 ```
