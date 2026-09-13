@@ -1,0 +1,38 @@
+{
+  "name": "carviwings",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/copy-cesium.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/copy-cesium.mjs",
+    "build": "next build",
+    "start": "next start",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:frontend:dev": "node scripts/desktop-frontend.mjs dev",
+    "desktop:frontend:build": "node scripts/desktop-frontend.mjs build",
+    "tauri": "tauri",
+    "typecheck": "tsc --noEmit",
+    "test:sim": "tsc -p tsconfig.test.json && node .test-build/sim/__tests__/run.js",
+    "bench:sim": "tsc -p tsconfig.test.json && node .test-build/sim/__tests__/bench.js"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.20.0",
+    "@tauri-apps/plugin-http": "^2.6.0",
+    "cesium": "^1.144.0",
+    "next": "^16.3.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.0"
+  }
+}

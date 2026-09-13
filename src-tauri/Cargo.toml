@@ -1,0 +1,30 @@
+[package]
+name = "carviwings"
+version = "0.0.0"
+description = "An FPV interception simulator flown over the real Earth."
+authors = ["CarviFPV"]
+repository = "https://github.com/CarviFPV/FPV-Wing-World-Simulator"
+edition = "2021"
+rust-version = "1.77.2"
+
+# The version above is a placeholder, and stays one. Releases are dated —
+# 2026.09.1 is the first release of September 2026 — and the number is worked
+# out from the repository's tags at release time and stamped in here by
+# `scripts/release-version.mjs`. A build from a checkout is deliberately 0.0.0,
+# which is nobody's release.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+
+# Releases are built once, by hand, and downloaded many times, so the build is
+# allowed to take its time in exchange for a smaller executable.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

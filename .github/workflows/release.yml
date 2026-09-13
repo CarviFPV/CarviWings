@@ -1,0 +1,159 @@
+# Cutting a release of the desktop application.
+#
+# Started by hand, from Actions -> Release -> Run workflow, and it does the
+# whole thing: works out which version this is, checks the simulation still
+# passes, builds the Windows executables and publishes them under Releases for
+# people to download.
+#
+# Versions are dated. `2026.09.1` is the first release of September 2026,
+# `2026.09.2` the second, and October begins again at `2026.10.1` — the counter
+# comes from the tags already in the repository, so nothing has to be
+# remembered or edited between releases. `scripts/release-version.mjs` is what
+# works it out, and what stamps it into the build.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 2026.09.4. Leave empty for the next one this month."
+        required: false
+        type: string
+      draft:
+        description: "Publish as a draft, to look over before anyone can download it."
+        required: false
+        default: false
+        type: boolean
+
+# Creating the release and its tag.
+permissions:
+  contents: write
+
+# Two releases at once would both claim the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # The version is counted from the tags, so they have to be here.
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Work out the version and stamp it in
+        id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/release-version.mjs --apply
+
+      # A release is the one build nobody gets to re-do quietly, so the same
+      # two checks a change has to pass run again before anything is built.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run the simulation tests
+        run: npm run test:sim
+
+      # Exports the game to `out/` (via `beforeBuildCommand`) and builds the
+      # shell around it. Produces the NSIS installer and, alongside it, the
+      # executable the installer would have installed — which needs nothing
+      # installing, because the whole game is embedded in it.
+      - name: Build the desktop application
+        run: npm run desktop:build
+
+      - name: Collect what to publish
+        shell: pwsh
+        run: |
+          $display = "${{ steps.version.outputs.display }}"
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+
+          $setup = @(Get-ChildItem -Path src-tauri/target/release/bundle/nsis -Filter *-setup.exe -File)
+          if ($setup.Count -ne 1) {
+            throw "expected one NSIS installer, found $($setup.Count)"
+          }
+          Copy-Item $setup[0].FullName "release/CarviWings_${display}_x64-setup.exe"
+
+          $portable = @(Get-ChildItem -Path src-tauri/target/release -Filter *.exe -File)
+          if ($portable.Count -ne 1) {
+            throw "expected one executable in target/release, found $($portable.Count)"
+          }
+          Copy-Item $portable[0].FullName "release/CarviWings_${display}_x64-portable.exe"
+
+          Get-ChildItem release | Format-Table Name, Length
+
+      # Kept on the run as well as on the release, so a build that took twenty
+      # minutes is not lost if publishing it goes wrong.
+      - name: Keep the executables on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: carviwings-windows-${{ steps.version.outputs.display }}
+          path: release/*.exe
+          if-no-files-found: error
+
+      - name: Write the release notes
+        shell: pwsh
+        run: |
+          $display = "${{ steps.version.outputs.display }}"
+          @"
+          ## Download
+
+          - **``CarviWings_${display}_x64-setup.exe``** — the installer. It installs
+            for you rather than for the whole machine, so Windows does not ask for an
+            administrator, and it puts CarviWings in the Start menu.
+          - **``CarviWings_${display}_x64-portable.exe``** — the same game in a single
+            file. Nothing is installed: put it where you like and run it.
+
+          64-bit Windows 10 or 11. The simulator draws with Microsoft's WebView2
+          runtime, which Windows 11 already has and the installer fetches if it is
+          missing. Windows may warn that the publisher is unknown — the executables
+          are not code-signed.
+
+          ## Before the first flight
+
+          CarviWings asks for a **Cesium ion access token** when it first starts. It is
+          free, it takes about a minute, and it is what streams the real terrain and
+          imagery the simulator flies over: <https://ion.cesium.com/tokens>. It is
+          remembered afterwards.
+          "@ | Set-Content -Path release-notes.md -Encoding utf8
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRAFT: ${{ inputs.draft }}
+        shell: pwsh
+        run: |
+          # The notes file goes in ahead of the release notes GitHub generates
+          # from the pull requests, rather than instead of them.
+          $arguments = @(
+            "release", "create", "${{ steps.version.outputs.tag }}",
+            "--target", "${{ github.sha }}",
+            "--title", "${{ steps.version.outputs.display }}",
+            "--notes-file", "release-notes.md",
+            "--generate-notes"
+          )
+          if ($env:DRAFT -eq "true") { $arguments += "--draft" }
+          $arguments += (Get-ChildItem release -File | ForEach-Object { $_.FullName })
+          gh @arguments

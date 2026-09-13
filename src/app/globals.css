@@ -1,0 +1,211 @@
+@import "tailwindcss";
+
+/*
+ * Aviation instrument styling: near-black panels, hairline rules, monospace
+ * numerals and a restrained amber/cyan accent set. Everything is tuned to stay
+ * readable on top of bright satellite imagery without obscuring it.
+ */
+@theme {
+  --color-void: #04060a;
+  --color-panel: #0a0e14;
+  --color-panel-raised: #111721;
+  --color-hairline: #1e2733;
+  --color-hairline-bright: #2f3d4d;
+
+  --color-osd: #d7e3ee;
+  --color-osd-dim: #7d8b9b;
+  --color-osd-faint: #4a5666;
+
+  /*
+   * The flight display's own colours, which are not the menus'.
+   *
+   * A goggle OSD is a character generator laid over the camera picture: it has
+   * no palette to speak of, just white glyphs, a green it uses for the marks
+   * you read attitude and heading against, and a red for the things that are
+   * on fire. Menus keep the cooler blue-grey above; the OSD is deliberately
+   * pure white, because that is what a flight controller can actually draw.
+   */
+  --color-osd-bright: #ffffff;
+  --color-osd-green: #3ce53c;
+
+  --color-amber: #ffb020;
+  --color-amber-dim: #8a6014;
+  --color-cyan: #37d3e8;
+  --color-lime: #7ce07c;
+  --color-danger: #ff4d4d;
+  --color-accent: #ff7a18;
+
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  /*
+   * The face the OSD is set in. Its own variable rather than the menus' mono
+   * so a real character-generator bitmap font can be dropped in here later
+   * without every readout having to be touched.
+   */
+  --font-osd: "Consolas", ui-monospace, "SF Mono", Menlo, "Liberation Mono",
+    monospace;
+
+  --text-2xs: 0.6875rem;
+}
+
+html,
+body {
+  height: 100%;
+  background: var(--color-void);
+  color: var(--color-osd);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+/*
+ * Cesium's required attribution — kept visible but out of the flight display.
+ * The credit container *is* the widget's bottom bar, so the rule that hides
+ * Cesium's own chrome below has to spare the element carrying this class:
+ * imagery, terrain and 3D tile providers all publish their attribution through
+ * it, and Google's photorealistic tiles require theirs to be on screen.
+ */
+.fpv-credits {
+  display: block !important;
+  position: absolute !important;
+  right: 8px;
+  bottom: 6px;
+  z-index: 5;
+  font-size: 10px;
+  line-height: 1.3;
+  color: rgba(215, 227, 238, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: auto;
+}
+.fpv-credits a {
+  color: rgba(215, 227, 238, 0.6);
+}
+
+/* Cesium injects its own widget chrome; the simulator supplies all of it. */
+.cesium-viewer-bottom:not(.fpv-credits) {
+  display: none !important;
+}
+.cesium-widget canvas {
+  display: block;
+}
+.cesium-viewer,
+.cesium-widget {
+  background: var(--color-void);
+}
+
+@utility hairline {
+  border: 1px solid var(--color-hairline);
+}
+
+@utility panel-surface {
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+  border: 1px solid var(--color-hairline);
+  backdrop-filter: blur(6px);
+}
+
+@utility osd-label {
+  color: var(--color-osd-dim);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/*
+ * OSD glyphs sit over satellite imagery of any brightness — snow, water, bare
+ * rock — so they carry their own outline rather than relying on contrast with
+ * whatever happens to be underneath. Inherited, so setting it once on the OSD
+ * root covers every readout.
+ *
+ * A hard stroke painted behind the fill rather than a ring of shadows: that is
+ * how a character generator draws its glyphs — one black outline pixel all the
+ * way round, sharp — and stacked shadows only ever approximated it. The soft
+ * shadow is kept underneath so the outline itself does not disappear against
+ * bare rock the same brightness as it is.
+ */
+@utility osd-glow {
+  -webkit-text-stroke: 2px rgba(0, 0, 0, 0.92);
+  paint-order: stroke fill;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+/*
+ * The OSD's own type: heavy, wide-spaced, lined up on the digit.
+ *
+ * A goggle OSD has one weight and one width, and every number is read while
+ * the aircraft is moving, so the numerals are spaced further apart than prose
+ * would be and never reflow as they count.
+ */
+@utility osd-typeface {
+  font-family: var(--font-osd);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The OSD is a fraction of the picture, not a number of screen pixels.
+ *
+ * A character generator lays its glyphs on a grid of cells cut out of the
+ * video frame, so a glyph is always the same fraction of the picture however
+ * big the picture is. The layout grid already works that way — a cell is
+ * 1/48th of the height — and the type has to as well, or the two disagree:
+ * readouts laid out clear of one another on a tall window overprint each other
+ * on a short one, and the layout editor, which previews the display scaled
+ * into whatever room the settings screen has, shows an arrangement that is not
+ * the one that gets flown.
+ *
+ * So the root carries a font size measured off its own height, and everything
+ * inside is set in `em` against it. `container-type: size` is what makes `cqh`
+ * mean the height of this box rather than the viewport's, which is what lets
+ * the editor's scaled 1920x1080 frame and the full-screen flight display share
+ * one set of numbers. 1080/16 = 67.5, so a 1080-line picture puts the base
+ * size at the 16px the layout was drawn against.
+ */
+@utility osd-scale {
+  container-type: size;
+  font-size: calc(100cqh / 67.5);
+}
+
+@keyframes fpv-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@keyframes fpv-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@utility animate-sweep {
+  animation: fpv-sweep 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@utility animate-warn {
+  animation: fpv-pulse 0.9s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-hairline-bright);
+  border-radius: 4px;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}

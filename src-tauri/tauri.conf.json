@@ -1,0 +1,62 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "CarviWings",
+  "version": "0.0.0",
+  "identifier": "ch.carvalhais.carviwings",
+  "build": {
+    "frontendDist": "../out",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeDevCommand": "npm run desktop:frontend:dev",
+    "beforeBuildCommand": "npm run desktop:frontend:build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "CarviWings",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "maximized": true,
+        "fullscreen": false,
+        "backgroundColor": "#04060a",
+        "backgroundThrottling": "disabled"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "CarviFPV",
+    "homepage": "https://github.com/CarviFPV/FPV-Wing-World-Simulator",
+    "category": "Game",
+    "shortDescription": "An FPV interception simulator flown over the real Earth.",
+    "longDescription": "Three fixed wings, two multirotors and five petrol UAVs, flown over global terrain and imagery streamed from Cesium ion. A free Cesium ion token is asked for the first time the simulator is started.",
+    "copyright": "© CarviFPV",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "languages": ["English"],
+        "compression": "lzma"
+      }
+    }
+  }
+}

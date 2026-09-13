@@ -1,0 +1,4 @@
+# Cargo's build directory, and the permission schemas Tauri regenerates from
+# the capabilities on every build.
+/target/
+/gen/schemas

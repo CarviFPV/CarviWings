@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "verbatimModuleSyntax": false,
+    "isolatedModules": false,
+    "noEmit": false,
+    "incremental": false,
+    "outDir": ".test-build",
+    "rootDir": "src",
+    "jsx": "react-jsx",
+    "types": ["node"],
+    "plugins": []
+  },
+  "include": ["src/sim/**/*.ts"],
+  "exclude": ["node_modules"]
+}
