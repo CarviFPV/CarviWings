@@ -34,7 +34,7 @@
     "active": true,
     "targets": ["nsis"],
     "publisher": "CarviFPV",
-    "homepage": "https://github.com/CarviFPV/FPV-Wing-World-Simulator",
+    "homepage": "https://github.com/CarviFPV/CarviWings",
     "category": "Game",
     "shortDescription": "An FPV interception simulator flown over the real Earth.",
     "longDescription": "Three fixed wings, two multirotors and five petrol UAVs, flown over global terrain and imagery streamed from Cesium ion. A free Cesium ion token is asked for the first time the simulator is started.",
