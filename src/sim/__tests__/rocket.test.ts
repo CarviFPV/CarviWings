@@ -16,7 +16,13 @@ import {
   stepFlightDynamics,
 } from "../flight/physics";
 import type { FlightEnvironment } from "../flight/physics";
-import { hoverThrottle, rotorTrim } from "../flight/multirotor";
+import {
+  hoverThrottle,
+  rotorLevelThrottle,
+  rotorTrim,
+} from "../flight/multirotor";
+import { FlightModeController } from "../flight/flightController";
+import { FLIGHT_MODE } from "../flight/flightModes";
 import { createPowerplant, fitsMotor } from "../flight/powerplant";
 import { CA35_160, GRAVITY, PLAYER_WING, X10_INTERCEPTOR } from "../flight/config";
 import type { AircraftConfig } from "../flight/config";
@@ -26,8 +32,8 @@ import { ROCKET_GROUND_CONTACT, groundContactFor } from "../flight/ground";
 import { groundLaunch } from "../flight/launch";
 import type { FlightInput } from "../input/types";
 import { MS_TO_KMH } from "../flight/telemetry";
-import { RAD_TO_DEG } from "../math/scalar";
-import { upAxis } from "../math/quat";
+import { DEG_TO_RAD, RAD_TO_DEG } from "../math/scalar";
+import { rotateVector, upAxis } from "../math/quat";
 import { engineProfileFor, engineSound } from "../audio/soundModel";
 import {
   MESH_KIND,
@@ -100,6 +106,107 @@ function trimResidual(config: AircraftConfig, speed: number): number {
   const trim = rotorTrim(config, speed);
   const sideways = config.mass * GRAVITY * Math.tan(trim.tilt);
   return Math.abs(sideways - trim.drag);
+}
+
+/** The X10 in trimmed level flight at one airspeed, flying due north. */
+function dashing(speed: number): AircraftState {
+  const state = rocket({
+    perfect: true,
+    altitude: 3000,
+    airspeed: speed,
+    pitchDeg: -rotorTrim(STOCK.config, speed).tilt * RAD_TO_DEG,
+    throttle: rotorLevelThrottle(STOCK.config, speed),
+  });
+  // Level, rather than along the body axis the spawn points it down: a
+  // multirotor's nose and its flight path are not the same direction, and on
+  // this one they are three quarters of a right angle apart.
+  V.set(state.velocity, 0, speed, 0);
+  return state;
+}
+
+/** A controller in the mode the simulator starts every flight in. */
+function acro(): FlightModeController {
+  const controller = new FlightModeController({
+    rates: X10_INTERCEPTOR_UAV.defaultRates,
+  });
+  controller.setMode(FLIGHT_MODE.Acro);
+  return controller;
+}
+
+function flyAssisted(
+  state: AircraftState,
+  controller: FlightModeController,
+  input: FlightInput,
+  seconds: number,
+): void {
+  const steps = Math.round(seconds / PHYSICS_TIMESTEP);
+  for (let i = 0; i < steps; i += 1) {
+    const flown = controller.update(state, input, PHYSICS_TIMESTEP);
+    stepFlightDynamics(state, flown, CALM, PHYSICS_TIMESTEP);
+  }
+}
+
+/** Where the pilot is looking, and which way is up in the picture. */
+interface View {
+  readonly forward: V.Vec3;
+  readonly up: V.Vec3;
+}
+
+/**
+ * Where the pilot is looking and which way is up in the picture.
+ *
+ * The same two vectors the camera rig builds: the FPV camera is mounted on the
+ * nose looking up the body, so what the pilot calls rolling, pitching and
+ * yawing are rotations about these and not about the airframe's own axes.
+ */
+function view(state: AircraftState): View {
+  const tilt = buildRocketMesh().fpvCamera.tiltDegrees * DEG_TO_RAD;
+  const forward = V.vec3();
+  const up = V.vec3();
+  rotateVector(
+    forward,
+    state.orientation,
+    V.vec3(Math.cos(tilt), 0, Math.sin(tilt)),
+  );
+  rotateVector(
+    up,
+    state.orientation,
+    V.vec3(-Math.sin(tilt), 0, Math.cos(tilt)),
+  );
+  return { forward, up };
+}
+
+/** How far the picture banked between two attitudes, degrees. */
+function pictureRoll(before: View, after: View): number {
+  const upright = V.vec3();
+  V.addScaled(upright, after.up, after.forward, -V.dot(after.up, after.forward));
+  V.normalize(upright, upright);
+  const cross = V.vec3();
+  V.cross(cross, before.up, upright);
+  return (
+    Math.atan2(V.dot(cross, after.forward), V.dot(before.up, upright)) *
+    RAD_TO_DEG
+  );
+}
+
+/** How far the picture swung sideways between two attitudes, degrees. */
+function pictureSwing(before: View, after: View): number {
+  const cross = V.vec3();
+  V.cross(cross, before.forward, after.forward);
+  return V.dot(cross, before.up) * RAD_TO_DEG;
+}
+
+/** Which way the aircraft is actually travelling, degrees. */
+function track(state: AircraftState): number {
+  return Math.atan2(state.velocity.x, state.velocity.y) * RAD_TO_DEG;
+}
+
+/** How far the airflow is off the nose, degrees. Zero is arriving on it. */
+function offTheNose(state: AircraftState): number {
+  return Math.hypot(
+    state.angleOfAttack * RAD_TO_DEG + 90,
+    state.sideslip * RAD_TO_DEG,
+  );
 }
 
 export function runRocketTests(): void {
@@ -324,9 +431,9 @@ export function runRocketTests(): void {
       "and still inside what the airframe is rated for",
     );
 
-    // The fins. With the rotors carrying the aircraft nothing is felt; with the
-    // thrust gone the couple arrives in full, and on this one it points the
-    // nose at the airflow instead of tipping the aircraft out of it.
+    // The fins. A quadcopter's drag couple is a few millimetres of build error
+    // and four turning discs hold all of it out; this one's is a tail on an arm
+    // fifteen times as long, which no disc is going to absorb.
     assert(
       X10_INTERCEPTOR.rotor!.dragCentreOffset < CA35_160.rotor!.dragCentreOffset,
       "its drag acts far below the weight, because the fins are down there",
@@ -346,6 +453,176 @@ export function runRocketTests(): void {
     assert(
       dead.airspeed > 40,
       "so it arrives nose-first and quickly rather than tumbling down flat",
+    );
+  });
+
+  suite("the fins are what it flies on, not just what it dies on", () => {
+    const rotor = X10_INTERCEPTOR.rotor!;
+    assert(
+      rotor.finDamping > 0 && CA35_160.rotor!.finDamping === 0,
+      "an airframe with a tail is damped by the air; one without is not",
+    );
+
+    // The claim: with the motors running and the pilot off the sticks, the
+    // nose comes back onto the flight path. Nothing else in the hangar that is
+    // not a wing does this, and a quadcopter never does it at all.
+    const knocked = dashing(95);
+    fly(knocked, stick(rotorLevelThrottle(STOCK.config, 95)), 0.4);
+    fly(knocked, stick(1, 0.35), 0.2);
+    const thrown = offTheNose(knocked);
+    assert(
+      thrown > 25,
+      "knock the nose well off the airflow with a pull and it is off it",
+    );
+    fly(knocked, stick(1), 1.2);
+    assert(
+      offTheNose(knocked) < thrown / 2,
+      "and the fins put it back with the motors still running, which is what a weathercock is",
+    );
+    assert(
+      knocked.airspeed > 80,
+      "so it keeps its speed instead of crabbing broadside and losing it",
+    );
+
+    // And it settles rather than swinging about the airflow: a weathercock
+    // without damping is a spring, and a spring rings.
+    const kicked = dashing(95);
+    fly(kicked, stick(rotorLevelThrottle(STOCK.config, 95)), 0.4);
+    kicked.angularVelocity.y = 3;
+    let worst = 0;
+    for (let i = 0; i < 30; i += 1) {
+      fly(kicked, stick(rotorLevelThrottle(STOCK.config, 95)), 0.05);
+      if (i > 8) worst = Math.max(worst, V.length(kicked.angularVelocity));
+    }
+    assert(
+      worst < 0.6,
+      "a kick in the nose dies out inside a second rather than ringing on",
+    );
+  });
+
+  suite("the sticks are the ones the pilot is looking down, not the airframe's", () => {
+    const rotor = X10_INTERCEPTOR.rotor!;
+    assertClose(
+      rotor.stickMixDeg,
+      buildRocketMesh().fpvCamera.tiltDegrees,
+      0.001,
+      "the mix is the camera's own mount angle, because that is what it is for",
+    );
+    assert(
+      CA35_160.rotor!.stickMixDeg === 0,
+      "and it is zero on a quadcopter, whose camera looks along the nose",
+    );
+
+    const throttle = rotorLevelThrottle(STOCK.config, 95);
+
+    // The roll stick banks the horizon. On the raw body axes it would swing
+    // the nose sideways instead, which is a rudder and not an aileron.
+    const rolling = dashing(95);
+    const rollController = acro();
+    flyAssisted(rolling, rollController, stick(throttle), 0.5);
+    const beforeRoll = view(rolling);
+    flyAssisted(rolling, rollController, stick(1, 0, 0.5), 0.4);
+    const afterRoll = view(rolling);
+    const banked = pictureRoll(beforeRoll, afterRoll);
+    assert(
+      banked > 20,
+      "half a second of roll stick banks the picture, the way it does on anything else",
+    );
+    assert(
+      Math.abs(pictureSwing(beforeRoll, afterRoll)) < Math.abs(banked) / 4,
+      "and barely swings it sideways, which is the half that used to be backwards",
+    );
+    assert(
+      Math.abs(rolling.sideslip * RAD_TO_DEG) < 15,
+      "so banking it no longer throws it forty degrees sideways through the air",
+    );
+    assert(
+      rolling.airspeed > 90,
+      "and the speed the run was made at survives the turn into it",
+    );
+
+    // The yaw stick is the other one: it swings the nose across the sky.
+    const yawing = dashing(95);
+    const yawController = acro();
+    flyAssisted(yawing, yawController, stick(throttle), 0.5);
+    const beforeYaw = view(yawing);
+    const heldTrack = track(yawing);
+    flyAssisted(yawing, yawController, stick(1, 0, 0, 0.5), 0.4);
+    const afterYaw = view(yawing);
+    assert(
+      Math.abs(pictureSwing(beforeYaw, afterYaw)) >
+        Math.abs(pictureRoll(beforeYaw, afterYaw)) * 2,
+      "the rudder swings the nose rather than banking the horizon backwards",
+    );
+    assert(
+      Math.abs(((track(yawing) - heldTrack + 540) % 360) - 180) > 5,
+      "and it takes the aircraft with it, which is what a rudder is for",
+    );
+
+    // What the pilot asked for on the axis they asked for it about. The rates
+    // belong to the aircraft, and the aircraft has to be able to deliver them.
+    const rates = X10_INTERCEPTOR_UAV.defaultRates;
+    const rated = dashing(95);
+    const ratedController = acro();
+    flyAssisted(rated, ratedController, stick(throttle), 0.5);
+    const mix = rotor.stickMixDeg * DEG_TO_RAD;
+    flyAssisted(rated, ratedController, stick(0.95, 0, 1), 1.5);
+    const seen =
+      rated.angularVelocity.x * RAD_TO_DEG * Math.cos(mix) -
+      -rated.angularVelocity.z * RAD_TO_DEG * Math.sin(mix);
+    assertClose(
+      seen,
+      rates.rollRate,
+      rates.rollRate * 0.1,
+      "acro holds the rate the sticks asked for, measured where the pilot sees it",
+    );
+  });
+
+  suite("and it comes round a corner the way an aeroplane does", () => {
+    const throttle = rotorLevelThrottle(STOCK.config, 95);
+    const turning = dashing(95);
+    const controller = acro();
+    flyAssisted(turning, controller, stick(throttle), 0.5);
+    const entry = track(turning);
+
+    // Bank, then pull — which is the only way to turn an airframe whose
+    // thrust points out of its nose, and which is what the stick frame above
+    // is there to make possible.
+    flyAssisted(turning, controller, stick(1, 0, 1), 0.3);
+    flyAssisted(turning, controller, stick(1, 0.25), 1.8);
+    const turned = Math.abs(((track(turning) - entry + 540) % 360) - 180);
+    assert(
+      turned > 70,
+      "bank and pull and it comes round: seventy degrees of it inside two seconds",
+    );
+    assert(
+      Math.abs(turning.sideslip * RAD_TO_DEG) < 15,
+      "with the nose on the flight path rather than crabbed thirty degrees off it",
+    );
+    assert(
+      turning.airspeed > 75,
+      "and still fast enough at the end of it to be an interceptor",
+    );
+
+    // Pull harder and it comes round tighter, for speed. Which sounds obvious
+    // and was not true of an airframe with no fins and the sticks crossed: the
+    // turn barely answered the stick at all.
+    const radius = (pull: number): number => {
+      const state = dashing(95);
+      const loop = acro();
+      flyAssisted(state, loop, stick(throttle), 0.5);
+      const from = track(state);
+      const start = { ...state.position };
+      flyAssisted(state, loop, stick(1, 0, 1), 0.3);
+      for (let i = 0; i < 160; i += 1) {
+        flyAssisted(state, loop, stick(1, pull), 0.05);
+        if (Math.abs(((track(state) - from + 540) % 360) - 180) >= 89) break;
+      }
+      return Math.hypot(state.position.x - start.x, state.position.y - start.y);
+    };
+    assert(
+      radius(0.4) < radius(0.15) * 0.8,
+      "a harder pull is a tighter corner, which is the whole of flying one",
     );
   });
 

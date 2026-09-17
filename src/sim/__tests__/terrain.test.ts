@@ -10,6 +10,7 @@ import {
   standingSurface,
 } from "../terrain/footing";
 import { SurfaceCalibration } from "../terrain/surfaceCalibration";
+import { SurfaceSettling } from "../terrain/settling";
 import type { TerrainQuery } from "../terrain/types";
 import type { Vec3 } from "../math/vec3";
 import { vec3 } from "../math/vec3";
@@ -602,5 +603,128 @@ export async function runTerrainTests(): Promise<void> {
       ) === null,
       "and too few readings to corroborate is no measurement either",
     );
+  });
+
+  suite("re-measuring a stand stops once the stand stops moving", () => {
+    // Driven a frame at a time, the way the flight loop drives it. An eighth of
+    // a second rather than a sixtieth so the arithmetic is exact in binary and
+    // the test is measuring the schedule rather than the rounding.
+    const step = 0.125;
+    const roundsUntilDue = (settling: SurfaceSettling): number => {
+      let frames = 0;
+      while (!settling.begin(step)) {
+        frames += 1;
+        if (frames > 100000) break;
+      }
+      return frames + 1;
+    };
+
+    const settling = new SurfaceSettling({
+      firstInterval: 1,
+      backoff: 2,
+      maxInterval: 8,
+      agreement: 0.25,
+      quorum: 2,
+    });
+
+    // What the loading screen measured. Nothing has been spent on it, so the
+    // first in-flight round is still a whole interval away.
+    settling.prime([12, 14]);
+    assert(!settling.settled, "a primed reading is not a settled one");
+    assertClose(
+      roundsUntilDue(settling) * step,
+      1,
+      1e-6,
+      "the first round comes one interval into the flight",
+    );
+    assert(settling.measuring, "and the settling knows a round is out");
+    assert(
+      !settling.begin(step * 100),
+      "nothing else is started while one is out, however long it takes",
+    );
+
+    settling.finish([12, 14]);
+    assert(!settling.settled, "one round agreeing is not enough");
+    assertClose(
+      roundsUntilDue(settling) * step,
+      2,
+      1e-6,
+      "and the next wait is longer than the one before it",
+    );
+
+    settling.finish([12.1, 13.9]);
+    assert(
+      settling.settled,
+      "two rounds inside the agreement and the measuring is over",
+    );
+    assert(
+      !settling.begin(1000),
+      "a settled stand is never measured again, however long the flight runs",
+    );
+  });
+
+  suite("a stand that is still arriving goes on being measured", () => {
+    const settling = new SurfaceSettling({
+      firstInterval: 1,
+      backoff: 2,
+      maxInterval: 4,
+      agreement: 0.25,
+      quorum: 2,
+    });
+    settling.prime([100, 100]);
+
+    // A canopy resolving under the pilot: every round finds it higher than the
+    // last, and nothing settles while that is true.
+    for (const height of [103, 107, 112, 118]) {
+      assert(settling.begin(1000), "a round is due while the answer moves");
+      settling.finish([100, height]);
+      assert(!settling.settled, `still arriving at ${height} m`);
+    }
+    assertClose(
+      settling.interval,
+      4,
+      1e-9,
+      "the wait backs off to its ceiling rather than past it",
+    );
+
+    // And a round that could not read one of the stands is not an answer.
+    assert(settling.begin(1000), "a round is due");
+    settling.finish([100, null]);
+    assert(!settling.settled, "a stand that could not be read settles nothing");
+    assert(settling.begin(1000), "so it is asked again");
+    settling.finish([100, 118]);
+    assert(!settling.settled, "and the missed reading is not agreement either");
+
+    assert(settling.begin(1000), "a round is due");
+    settling.finish([100, 118]);
+    assert(settling.begin(1000), "a round is due");
+    settling.finish([100, 118]);
+    assert(settling.settled, "two agreeing rounds settle it once it holds still");
+  });
+
+  suite("a wing going back in the hand unsettles the ground under it", () => {
+    const settling = new SurfaceSettling({ firstInterval: 1, quorum: 1 });
+    settling.prime([50, 52]);
+    assert(settling.begin(1), "a round is due");
+    settling.finish([50, 52]);
+    assert(settling.settled, "the field is settled");
+
+    settling.disturb();
+    assert(!settling.settled, "a relaunch puts the question back");
+    assertClose(
+      settling.interval,
+      1,
+      1e-9,
+      "and it is asked at the opening interval rather than the backed-off one",
+    );
+    assert(!settling.begin(0.5), "but not before the interval is up");
+    assert(settling.begin(0.5), "and then it is");
+
+    // A round that never ran concludes nothing in either direction.
+    settling.abandon();
+    assert(!settling.settled, "an abandoned round settles nothing");
+    assert(settling.begin(1), "and the next one is due on the usual clock");
+    settling.finish([50, 52]);
+    assert(settling.settled, "a real round settles it again");
   });
 }

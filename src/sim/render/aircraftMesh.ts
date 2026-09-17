@@ -67,6 +67,9 @@ export const MESH_KIND = {
   X8: "x8",
   Rocket: "rocket",
   Skyeye: "skyeye",
+  Triplane: "triplane",
+  P38: "p38",
+  Biplane: "biplane",
 } as const;
 
 export type MeshKind = (typeof MESH_KIND)[keyof typeof MESH_KIND];
@@ -388,7 +391,14 @@ interface Planform {
   readonly hingeZ: number;
   /** Station index where the elevons begin, just outboard of the pod. */
   readonly firstElevonStation: number;
-  /** Station index where they end, which need not be the tip. */
+  /**
+   * Station index where they end, which need not be the tip.
+   *
+   * A planform whose last station is *before* its first carries no moving
+   * surface at all, and that is a real wing rather than a degenerate one: an
+   * aeroplane with three of them has its ailerons on one, and the other two are
+   * lofted by exactly the same code with nothing cut out of the trailing edge.
+   */
   readonly lastElevonStation: number;
   /** Chord fractions across the elevon itself, hinge to trailing edge. */
   readonly elevonSamples: readonly number[];
@@ -454,6 +464,11 @@ function hingeFraction(plan: Planform, station: Station): number {
 /** True for stations that carry an elevon behind them. */
 function hasElevon(plan: Planform, index: number): boolean {
   return index >= plan.firstElevonStation && index <= plan.lastElevonStation;
+}
+
+/** True when the wing has a moving surface on it at all. */
+function hasAnyElevon(plan: Planform): boolean {
+  return plan.firstElevonStation <= plan.lastElevonStation;
 }
 
 function surfacePoint(
@@ -526,8 +541,9 @@ function buildWing(
     // full chord up to it and stops. Rib it over, exactly as the real airframe
     // is ribbed. The far end only exists where the elevon stops short of the
     // tip; where it runs all the way out, the tip rib closes it.
-    const ends =
-      plan.lastElevonStation < stations.length - 1
+    const ends = !hasAnyElevon(plan)
+      ? []
+      : plan.lastElevonStation < stations.length - 1
         ? [plan.firstElevonStation, plan.lastElevonStation]
         : [plan.firstElevonStation];
     for (const index of ends) {
@@ -3126,8 +3142,13 @@ function buildSkyeyeElevator(part: PartBuilder, sign: number): void {
   part.plate(outline, 0.014, 2);
 }
 
-/** One wheel: a disc turning about the body's left axis. */
-function buildSkyeyeWheel(
+/**
+ * One wheel: a disc turning about the body's left axis.
+ *
+ * Not the Skyeye's: there is more than one aeroplane on wheels here now, and a
+ * wheel is a wheel whether it is under 25 kg of carbon or 1.7 kg of foam board.
+ */
+function buildWheel(
   part: PartBuilder,
   x: number,
   y: number,
@@ -3163,7 +3184,7 @@ function buildSkyeyeGear(legs: PartBuilder, tyres: PartBuilder): void {
     [SKYEYE_NOSE_WHEEL_X - 0.016, -0.014, noseWheelZ],
     [SKYEYE_NOSE_WHEEL_X + 0.016, 0.014, -0.09],
   );
-  buildSkyeyeWheel(
+  buildWheel(
     tyres,
     SKYEYE_NOSE_WHEEL_X,
     0,
@@ -3184,7 +3205,7 @@ function buildSkyeyeGear(legs: PartBuilder, tyres: PartBuilder): void {
     ];
     if (sign < 0) leg.reverse();
     legs.plate(leg, 0.014, 2);
-    buildSkyeyeWheel(
+    buildWheel(
       tyres,
       SKYEYE_MAIN_WHEEL_X,
       SKYEYE_MAIN_WHEEL_Y * sign,
@@ -3403,6 +3424,1946 @@ export function buildSkyeyeMesh(): AircraftMesh {
   return cachedSkyeye;
 }
 
+// --- The FT Triplane XL -----------------------------------------------------
+
+/**
+ * Procedural geometry for the FT Triplane XL.
+ *
+ * A Fokker Dr.I in foam board, and it is drawn as one: three unstaggered wings
+ * of a 200 mm chord, 1.232 m across the top and shortening downwards; a deep
+ * slab-sided fuselage with a rounded decking and a round cowl over the nose; a
+ * single wide I-strut a side joining all three wings out near the tips; two
+ * cabane struts a side carrying the top wing over the cockpit; a comma rudder
+ * and a broad tailplane on the back; and two 4.3-inch wheels on a faired axle
+ * with a skid behind them.
+ *
+ * The three wings are lofted by the same code the flying wings are, from three
+ * planforms rather than one. Only the top wing has anything hinged in it —
+ * ailerons, where a Dr.I carries them — and, as on every other aeroplane here
+ * with a tail, they are drawn where they sit and it is the elevator that moves.
+ *
+ * Same body frame as everything else: X = forward, Y = left, Z = up, origin at
+ * the centre of gravity, which on this one is 63.5 mm behind the middle wing's
+ * leading edge and about level with it.
+ */
+
+/**
+ * Wing span of the triplane this geometry was drawn from, metres.
+ *
+ * The top wing, which is the one the kit is sold by and the widest thing on the
+ * aeroplane.
+ */
+export const MESH_TRIPLANE_SPAN = 1.232;
+
+/** The chord all three wings share, and where it sits fore and aft. */
+const TRIPLANE_LEADING = 0.0635;
+const TRIPLANE_TRAILING = -0.1365;
+
+/** Where each wing sits above or below the centre of gravity. */
+const TRIPLANE_TOP_Z = 0.26;
+const TRIPLANE_MIDDLE_Z = 0.075;
+const TRIPLANE_LOWER_Z = -0.11;
+
+/**
+ * The aileron hinge, a third of the chord forward of the trailing edge.
+ *
+ * On the top wing and nowhere else, which is where a Dr.I has them and why the
+ * other two planforms below carry no moving surface at all.
+ */
+const TRIPLANE_HINGE_X = -0.0705;
+const TRIPLANE_HINGE_Z = TRIPLANE_TOP_Z;
+const TRIPLANE_AILERON_SAMPLES = [0, 0.5, 1] as const;
+
+/** Chord fractions sampled across each section, nose to tail. */
+const TRIPLANE_CHORD_SAMPLES = [0, 0.05, 0.16, 0.38, 0.67, 1] as const;
+
+/**
+ * Folded foam board, as a fraction of thickness.
+ *
+ * Nothing like a moulded aerofoil and not meant to be: a sheet of board bent
+ * over a spar has its high point well forward, a nearly flat underside and a
+ * trailing edge that comes to a line. It is 8% thick, which on a 200 mm chord
+ * is the 16 mm the fold actually leaves.
+ */
+function triplaneUpperProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return 0.95 * Math.sin(Math.PI * Math.pow(f, 0.45));
+}
+
+function triplaneLowerProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return -0.12 * Math.sin(Math.PI * Math.pow(f, 0.85));
+}
+
+/** One wing's stations: constant chord to the tip panel, then raked off. */
+function triplaneStations(z: number, halfSpan: number): Station[] {
+  const inner = TRIPLANE_LEADING;
+  const outer = TRIPLANE_TRAILING;
+  return [
+    { y: 0, leading: inner, trailing: outer, thickness: 0.016, z },
+    { y: halfSpan * 0.23, leading: inner, trailing: outer, thickness: 0.016, z },
+    { y: halfSpan * 0.49, leading: inner, trailing: outer, thickness: 0.015, z },
+    {
+      y: halfSpan * 0.84,
+      leading: inner - 0.002,
+      trailing: outer,
+      thickness: 0.014,
+      z,
+    },
+    {
+      y: halfSpan,
+      leading: inner - 0.019,
+      trailing: outer + 0.009,
+      thickness: 0.012,
+      z,
+    },
+  ];
+}
+
+const TRIPLANE_TOP_STATIONS = triplaneStations(TRIPLANE_TOP_Z, 0.616);
+const TRIPLANE_MIDDLE_STATIONS = triplaneStations(TRIPLANE_MIDDLE_Z, 0.55);
+const TRIPLANE_LOWER_STATIONS = triplaneStations(TRIPLANE_LOWER_Z, 0.495);
+
+/** The top wing, and the only one with anything hinged in it. */
+const TRIPLANE_TOP_PLANFORM: Planform = {
+  stations: TRIPLANE_TOP_STATIONS,
+  chordSamples: TRIPLANE_CHORD_SAMPLES,
+  hingeX: TRIPLANE_HINGE_X,
+  hingeZ: TRIPLANE_HINGE_Z,
+  firstElevonStation: 1,
+  lastElevonStation: TRIPLANE_TOP_STATIONS.length - 1,
+  elevonSamples: TRIPLANE_AILERON_SAMPLES,
+  upper: triplaneUpperProfile,
+  lower: triplaneLowerProfile,
+};
+
+/** The middle and lower wings: the same section, and nothing cut out of them. */
+function triplanePlainPlanform(stations: readonly Station[]): Planform {
+  return {
+    stations,
+    chordSamples: TRIPLANE_CHORD_SAMPLES,
+    hingeX: TRIPLANE_HINGE_X,
+    hingeZ: stations[0]!.z,
+    firstElevonStation: 0,
+    lastElevonStation: -1,
+    elevonSamples: TRIPLANE_AILERON_SAMPLES,
+    upper: triplaneUpperProfile,
+    lower: triplaneLowerProfile,
+  };
+}
+
+const TRIPLANE_MIDDLE_PLANFORM = triplanePlainPlanform(TRIPLANE_MIDDLE_STATIONS);
+const TRIPLANE_LOWER_PLANFORM = triplanePlainPlanform(TRIPLANE_LOWER_STATIONS);
+
+/** Doped fabric, bare board and rubber, as one comes off the build table. */
+const TRIPLANE_SHELL_TOP: readonly [number, number, number] = [
+  0.659, 0.086, 0.114,
+];
+const TRIPLANE_SHELL_BOTTOM: readonly [number, number, number] = [
+  0.46, 0.06, 0.08,
+];
+const TRIPLANE_LINEN: readonly [number, number, number] = [0.902, 0.863, 0.765];
+const TRIPLANE_TYRE: readonly [number, number, number] = [0.09, 0.09, 0.095];
+/** Laminated beech, which is what a propeller of this vintage is made of. */
+const TRIPLANE_WOOD: readonly [number, number, number] = [0.42, 0.28, 0.15];
+
+/** How dark each panel is against the top of the wings. */
+const TRIPLANE_BOTTOM_SHADE = 0.7;
+const TRIPLANE_BODY_SHADE = 0.88;
+const TRIPLANE_TAIL_SHADE = 0.94;
+
+/** Where the propeller turns, and how big it is. */
+const TRIPLANE_PROP_X = 0.515;
+const TRIPLANE_PROP_AXIS_Z = -0.005;
+/** Twelve inches across, which is what the delivered combo swings. */
+const TRIPLANE_PROP_RADIUS = (12 * 0.0254) / 2;
+
+/**
+ * Where the aeroplane touches the ground, and it has to be exactly here.
+ *
+ * The ground model rests a taildragger's reference point a fifth of its span
+ * above the surface and holds it twelve degrees nose-up, so the wheels and the
+ * skid are put where that attitude actually puts them: solve the pitched ground
+ * plane for the body Z at each contact point and the aeroplane stands on all
+ * three rather than hovering over them or sinking through.
+ */
+const TRIPLANE_REST_HEIGHT = MESH_TRIPLANE_SPAN / 4.8;
+const TRIPLANE_REST_PITCH = (12 * Math.PI) / 180;
+
+function triplaneGroundZ(x: number): number {
+  return (
+    (-TRIPLANE_REST_HEIGHT - x * Math.sin(TRIPLANE_REST_PITCH)) /
+    Math.cos(TRIPLANE_REST_PITCH)
+  );
+}
+
+const TRIPLANE_WHEEL_X = 0.14;
+const TRIPLANE_WHEEL_Y = 0.132;
+/** 4.3 inches across, which is what is in the box. */
+const TRIPLANE_WHEEL_RADIUS = (4.3 * 0.0254) / 2;
+const TRIPLANE_WHEEL_Z =
+  triplaneGroundZ(TRIPLANE_WHEEL_X) + TRIPLANE_WHEEL_RADIUS;
+const TRIPLANE_SKID_X = -0.53;
+const TRIPLANE_SKID_Z = triplaneGroundZ(TRIPLANE_SKID_X);
+
+/** The elevator, and where it hinges. */
+const TRIPLANE_TAIL_Z = -0.005;
+const TRIPLANE_ELEVATOR_HINGE_X = -0.465;
+const TRIPLANE_TAIL_HALF_SPAN = 0.21;
+const TRIPLANE_TAIL_ROOT_GAP = 0.012;
+
+/**
+ * A round strut between two points.
+ *
+ * The multiplanes here are mostly strut — the triplane has eight holding the
+ * wings apart and four more under it holding the wheels on, and the biplane has
+ * its own set — and none of them are axis-aligned, which is the one thing
+ * `plate` and `column` cannot do. So they are built here: a tube from one point
+ * to another, capped at both ends, wound outwards.
+ */
+function buildRoundStrut(
+  part: PartBuilder,
+  from: Point,
+  to: Point,
+  radius: number,
+  segments = 6,
+): void {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const dz = to[2] - from[2];
+  const length = Math.hypot(dx, dy, dz) || 1;
+  const d: Point = [dx / length, dy / length, dz / length];
+  // Any reference that is not along the strut will do to get a first radius.
+  const ref: Point = Math.abs(d[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+  let ux = ref[1] * d[2] - ref[2] * d[1];
+  let uy = ref[2] * d[0] - ref[0] * d[2];
+  let uz = ref[0] * d[1] - ref[1] * d[0];
+  const un = Math.hypot(ux, uy, uz) || 1;
+  ux /= un;
+  uy /= un;
+  uz /= un;
+  const vx = d[1] * uz - d[2] * uy;
+  const vy = d[2] * ux - d[0] * uz;
+  const vz = d[0] * uy - d[1] * ux;
+  const at = (base: Point, angle: number): Point => {
+    const c = Math.cos(angle) * radius;
+    const s = Math.sin(angle) * radius;
+    return [
+      base[0] + ux * c + vx * s,
+      base[1] + uy * c + vy * s,
+      base[2] + uz * c + vz * s,
+    ];
+  };
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    part.quad(at(from, a0), at(from, a1), at(to, a1), at(to, a0));
+    part.triangle(to, at(to, a0), at(to, a1));
+    part.triangle(from, at(from, a1), at(from, a0));
+  }
+}
+
+/** One fuselage station: a slab-sided box with a rounded decking on top. */
+interface TriplaneRing {
+  x: number;
+  halfWidth: number;
+  top: number;
+  bottom: number;
+}
+
+const TRIPLANE_BODY: readonly TriplaneRing[] = [
+  { x: 0.435, halfWidth: 0.056, top: 0.05, bottom: -0.062 },
+  { x: 0.34, halfWidth: 0.058, top: 0.055, bottom: -0.068 },
+  { x: 0.22, halfWidth: 0.056, top: 0.062, bottom: -0.078 },
+  { x: 0.08, halfWidth: 0.053, top: 0.074, bottom: -0.096 },
+  { x: -0.06, halfWidth: 0.05, top: 0.072, bottom: -0.1 },
+  { x: -0.2, halfWidth: 0.042, top: 0.062, bottom: -0.086 },
+  { x: -0.34, halfWidth: 0.032, top: 0.05, bottom: -0.062 },
+  { x: -0.46, halfWidth: 0.022, top: 0.038, bottom: -0.038 },
+  { x: -0.555, halfWidth: 0.011, top: 0.03, bottom: -0.02 },
+];
+
+function triplaneRingPoints(ring: TriplaneRing): Point[] {
+  const w = ring.halfWidth;
+  const t = ring.top;
+  const b = ring.bottom;
+  return [
+    [ring.x, 0, t],
+    [ring.x, w * 0.7, t * 0.88],
+    [ring.x, w, t * 0.3],
+    [ring.x, w * 0.92, b * 0.55],
+    [ring.x, w * 0.5, b],
+    [ring.x, 0, b],
+    [ring.x, -w * 0.5, b],
+    [ring.x, -w * 0.92, b * 0.55],
+    [ring.x, -w, t * 0.3],
+    [ring.x, -w * 0.7, t * 0.88],
+  ];
+}
+
+function buildTriplaneBody(body: PartBuilder): void {
+  for (let i = 0; i + 1 < TRIPLANE_BODY.length; i += 1) {
+    const a = triplaneRingPoints(TRIPLANE_BODY[i]!);
+    const b = triplaneRingPoints(TRIPLANE_BODY[i + 1]!);
+    for (let k = 0; k < a.length; k += 1) {
+      const k2 = (k + 1) % a.length;
+      body.quad(a[k]!, a[k2]!, b[k2]!, b[k]!);
+    }
+  }
+  const front = triplaneRingPoints(TRIPLANE_BODY[0]!);
+  const nose: Point = [0.455, 0, -0.005];
+  for (let k = 0; k < front.length; k += 1) {
+    body.triangle(nose, front[(k + 1) % front.length]!, front[k]!);
+  }
+  const back = triplaneRingPoints(TRIPLANE_BODY[TRIPLANE_BODY.length - 1]!);
+  const post: Point = [-0.568, 0, 0.005];
+  for (let k = 0; k < back.length; k += 1) {
+    body.triangle(post, back[k]!, back[(k + 1) % back.length]!);
+  }
+}
+
+/**
+ * The cowl: the ring over the nose, and the first thing anybody recognises.
+ *
+ * A tube rather than a disc, because that is what one is — a Dr.I's cowl is
+ * open at the front with the engine turning inside it, and drawing it closed
+ * would put a dinner plate on the nose of the aeroplane.
+ */
+function buildTriplaneCowl(cowl: PartBuilder): void {
+  const segments = 14;
+  const outer = 0.069;
+  const inner = 0.056;
+  const back = 0.345;
+  const front = 0.45;
+  const cz = -0.005;
+  const ring = (angle: number, radius: number, x: number): Point => [
+    x,
+    Math.cos(angle) * radius,
+    cz + Math.sin(angle) * radius,
+  ];
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    cowl.quad(
+      ring(a0, outer, back),
+      ring(a1, outer, back),
+      ring(a1, outer, front),
+      ring(a0, outer, front),
+    );
+    cowl.quad(
+      ring(a0, inner, back),
+      ring(a0, inner, front),
+      ring(a1, inner, front),
+      ring(a1, inner, back),
+    );
+    cowl.quad(
+      ring(a0, inner, front),
+      ring(a0, outer, front),
+      ring(a1, outer, front),
+      ring(a1, inner, front),
+    );
+    cowl.quad(
+      ring(a0, inner, back),
+      ring(a1, inner, back),
+      ring(a1, outer, back),
+      ring(a0, outer, back),
+    );
+  }
+}
+
+/**
+ * What holds the three wings apart.
+ *
+ * Two cabane struts a side over the cockpit carrying the top wing, and one wide
+ * I-strut a side out near the tips joining all three at once — which is the
+ * arrangement that let Fokker build a triplane with no bracing wires on it, and
+ * the reason the aeroplane looks the way it does.
+ */
+function buildTriplaneStruts(struts: PartBuilder): void {
+  for (const sign of [1, -1] as const) {
+    for (const x of [0.05, -0.11] as const) {
+      buildRoundStrut(
+        struts,
+        [x, 0.05 * sign, 0.07],
+        [x, 0.05 * sign, TRIPLANE_TOP_Z - 0.004],
+        0.005,
+      );
+    }
+
+    const y = 0.46 * sign;
+    const post: Point[] = [
+      [0.008, y, TRIPLANE_LOWER_Z - 0.002],
+      [0.008, y, TRIPLANE_TOP_Z + 0.002],
+      [-0.062, y, TRIPLANE_TOP_Z + 0.002],
+      [-0.062, y, TRIPLANE_LOWER_Z - 0.002],
+    ];
+    struts.plate(post, 0.008, 1);
+  }
+}
+
+/**
+ * Fin, rudder and tailplane.
+ *
+ * The comma rudder is drawn as one piece with the little fin ahead of it: it is
+ * the shape everybody knows a Dr.I by, and the flight model has only one pair
+ * of hinged surfaces to spend, which goes on the elevator.
+ */
+function buildTriplaneTail(tail: PartBuilder): void {
+  const fin: Point[] = [
+    [-0.4, 0, 0.03],
+    [-0.465, 0, 0.15],
+    [-0.555, 0, 0.15],
+    [-0.6, 0, 0.07],
+    [-0.575, 0, 0.005],
+  ];
+  tail.plate(fin, 0.007, 1);
+
+  const z = TRIPLANE_TAIL_Z;
+  const span = TRIPLANE_TAIL_HALF_SPAN;
+  const hinge = TRIPLANE_ELEVATOR_HINGE_X;
+  const stabiliser: Point[] = [
+    [-0.375, 0, z],
+    [-0.408, span, z],
+    [hinge, span, z],
+    [hinge, -span, z],
+    [-0.408, -span, z],
+  ];
+  tail.plate(stabiliser, 0.009, 2);
+}
+
+/** One half of the elevator, in a frame whose origin sits on its hinge. */
+function buildTriplaneElevator(part: PartBuilder, sign: number): void {
+  const inner = TRIPLANE_TAIL_ROOT_GAP * sign;
+  const outer = TRIPLANE_TAIL_HALF_SPAN * sign;
+  const outline: Point[] = [
+    [0, inner, 0],
+    [0, outer, 0],
+    [-0.075, outer, 0],
+    [-0.105, inner, 0],
+  ];
+  part.plate(outline, 0.009, 2);
+}
+
+/**
+ * The undercarriage: two wheels on a faired axle, and a skid behind.
+ *
+ * A V of struts a side down to the axle, the aerofoil fairing between the
+ * wheels that a Dr.I carries and that is worth a little lift of its own, and
+ * the tail skid — which is the third point the aeroplane stands on and the
+ * reason its wing is already at twelve degrees before it has moved.
+ */
+function buildTriplaneGear(
+  legs: PartBuilder,
+  tyres: PartBuilder,
+  fabric: PartBuilder,
+): void {
+  for (const sign of [1, -1] as const) {
+    const y = TRIPLANE_WHEEL_Y * sign;
+    const hub: Point = [TRIPLANE_WHEEL_X, y, TRIPLANE_WHEEL_Z];
+    buildRoundStrut(legs, [0.215, 0.03 * sign, -0.086], hub, 0.005);
+    buildRoundStrut(legs, [0.06, 0.03 * sign, -0.097], hub, 0.005);
+    buildWheel(
+      tyres,
+      TRIPLANE_WHEEL_X,
+      y,
+      TRIPLANE_WHEEL_Z,
+      TRIPLANE_WHEEL_RADIUS,
+      0.028,
+    );
+  }
+
+  // The axle fairing, which is fabric over a rib like everything else on the
+  // aeroplane and worth a little lift of its own — Fokker counted it as a
+  // fourth wing, which is not quite a joke on something this lightly loaded.
+  const fairing: Point[] = [
+    [TRIPLANE_WHEEL_X + 0.04, TRIPLANE_WHEEL_Y - 0.014, TRIPLANE_WHEEL_Z],
+    [TRIPLANE_WHEEL_X + 0.04, -TRIPLANE_WHEEL_Y + 0.014, TRIPLANE_WHEEL_Z],
+    [TRIPLANE_WHEEL_X - 0.046, -TRIPLANE_WHEEL_Y + 0.014, TRIPLANE_WHEEL_Z],
+    [TRIPLANE_WHEEL_X - 0.046, TRIPLANE_WHEEL_Y - 0.014, TRIPLANE_WHEEL_Z],
+  ];
+  fabric.plate(fairing, 0.013, 2);
+
+  buildRoundStrut(
+    legs,
+    [-0.455, 0, -0.034],
+    [TRIPLANE_SKID_X, 0, TRIPLANE_SKID_Z + 0.006],
+    0.007,
+  );
+}
+
+/**
+ * The camera, in the cockpit, which is the whole point of flying one of these.
+ *
+ * On a pan-and-tilt mount where the pilot's head goes — just behind the middle
+ * wing's trailing edge and above the decking, looking out over the middle wing
+ * and under the top one, which is exactly the view a Dr.I pilot had and exactly
+ * as obstructed.
+ */
+function buildTriplaneCockpit(body: PartBuilder, lens: PartBuilder): void {
+  const x0 = -0.205;
+  const x1 = -0.14;
+  const zBottom = 0.062;
+  const zTop = 0.108;
+  const side: Point[] = [
+    [x0, 0, zBottom],
+    [x1, 0, zBottom],
+    [x1, 0, zTop],
+    [x0, 0, zTop],
+  ];
+  body.plate(side, 0.036, 1);
+  const glass: Point[] = [
+    [x1 + 0.002, -0.013, zBottom + 0.008],
+    [x1 + 0.008, -0.013, zTop - 0.008],
+    [x1 + 0.008, 0.013, zTop - 0.008],
+    [x1 + 0.002, 0.013, zBottom + 0.008],
+  ];
+  lens.plate(glass, 0.005, 0);
+}
+
+/** The propeller, in its own frame with the hub at zero. */
+function buildTriplanePropeller(prop: PartBuilder): void {
+  const radius = TRIPLANE_PROP_RADIUS;
+  // Two broad wooden blades. A 12-inch propeller on a park aeroplane is a
+  // wider, slower-turning thing than anything else electric here swings.
+  const blade = (direction: 1 | -1): Point[] => {
+    const points: Point[] = [
+      [0, 0.016, 0.022 * direction],
+      [0, 0.024, 0.075 * direction],
+      [0, 0.014, radius * direction],
+      [0, -0.012, radius * 0.93 * direction],
+      [0, -0.02, 0.07 * direction],
+      [0, -0.014, 0.02 * direction],
+    ];
+    return direction === 1 ? points : points.slice().reverse();
+  };
+  prop.plate(blade(1), 0.007, 0);
+  prop.plate(blade(-1), 0.007, 0);
+
+  const segments = 10;
+  const hubRadius = 0.019;
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    prop.triangle(
+      [0.03, 0, 0],
+      [0, Math.cos(a0) * hubRadius, Math.sin(a0) * hubRadius],
+      [0, Math.cos(a1) * hubRadius, Math.sin(a1) * hubRadius],
+    );
+  }
+}
+
+let cachedTriplane: AircraftMesh | null = null;
+
+/** Builds (once) and returns the FT Triplane XL mesh. */
+export function buildTriplaneMesh(): AircraftMesh {
+  if (cachedTriplane) return cachedTriplane;
+
+  const top = new PartBuilder("triplane-top", TRIPLANE_SHELL_TOP, PAINT.Shell);
+  const bottom = new PartBuilder(
+    "triplane-bottom",
+    TRIPLANE_SHELL_BOTTOM,
+    PAINT.Shell,
+    TRIPLANE_BOTTOM_SHADE,
+  );
+  const body = new PartBuilder(
+    "triplane-body",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+    TRIPLANE_BODY_SHADE,
+  );
+  const tail = new PartBuilder(
+    "triplane-tail",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+    TRIPLANE_TAIL_SHADE,
+  );
+  const cowl = new PartBuilder("triplane-cowl", TRIPLANE_LINEN, PAINT.Accent);
+  const struts = new PartBuilder("triplane-struts", TRIPLANE_LINEN, PAINT.Accent);
+  const legs = new PartBuilder("triplane-gear", MOTOR);
+  const tyres = new PartBuilder("triplane-tyres", TRIPLANE_TYRE);
+  const lens = new PartBuilder("triplane-lens", LENS);
+  const propeller = new PartBuilder("triplane-propeller", TRIPLANE_WOOD);
+  const aileronLeft = new PartBuilder(
+    "triplane-aileron-left",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronRight = new PartBuilder(
+    "triplane-aileron-right",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronUnderLeft = new PartBuilder(
+    "triplane-aileron-left-bottom",
+    TRIPLANE_SHELL_BOTTOM,
+    PAINT.Shell,
+    TRIPLANE_BOTTOM_SHADE,
+  );
+  const aileronUnderRight = new PartBuilder(
+    "triplane-aileron-right-bottom",
+    TRIPLANE_SHELL_BOTTOM,
+    PAINT.Shell,
+    TRIPLANE_BOTTOM_SHADE,
+  );
+  const elevatorLeft = new PartBuilder(
+    "triplane-elevator-left",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+    TRIPLANE_TAIL_SHADE,
+  );
+  const elevatorRight = new PartBuilder(
+    "triplane-elevator-right",
+    TRIPLANE_SHELL_TOP,
+    PAINT.Shell,
+    TRIPLANE_TAIL_SHADE,
+  );
+
+  buildWing(TRIPLANE_TOP_PLANFORM, top, bottom);
+  buildWing(TRIPLANE_MIDDLE_PLANFORM, top, bottom);
+  buildWing(TRIPLANE_LOWER_PLANFORM, top, bottom);
+  buildElevon(TRIPLANE_TOP_PLANFORM, aileronLeft, 1, aileronUnderLeft);
+  buildElevon(TRIPLANE_TOP_PLANFORM, aileronRight, -1, aileronUnderRight);
+  buildTriplaneBody(body);
+  buildTriplaneCowl(cowl);
+  buildTriplaneStruts(struts);
+  buildTriplaneTail(tail);
+  buildTriplaneElevator(elevatorLeft, 1);
+  buildTriplaneElevator(elevatorRight, -1);
+  buildTriplaneGear(legs, tyres, body);
+  buildTriplaneCockpit(body, lens);
+  buildTriplanePropeller(propeller);
+
+  // The ailerons are drawn where they sit and stay there: the hinge line is
+  // visible in the top wing, and the surface the pilot watches move is the
+  // elevator, as on every other aeroplane here with a tail.
+  const ailerons = [
+    aileronLeft.build(),
+    aileronUnderLeft.build(),
+    aileronRight.build(),
+    aileronUnderRight.build(),
+  ]
+    .filter((part): part is MeshPart => part !== null)
+    .map((part) => translated(part, TRIPLANE_HINGE_X, 0, TRIPLANE_HINGE_Z));
+  const parts = [
+    ...[top, bottom, body, tail, cowl, struts, legs, tyres, lens]
+      .map((builder) => builder.build())
+      .filter((part): part is MeshPart => part !== null),
+    ...ailerons,
+  ];
+
+  const propellerParts = [propeller.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const propellers: PropellerGroup[] = [
+    {
+      name: "triplane-propeller",
+      origin: [TRIPLANE_PROP_X, 0, TRIPLANE_PROP_AXIS_Z],
+      axis: "x",
+      direction: 1,
+      parts: propellerParts,
+    },
+  ];
+
+  const leftParts = [elevatorLeft.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const rightParts = [elevatorRight.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const staticParts = [
+    ...parts,
+    ...[...leftParts, ...rightParts].map((part) =>
+      translated(part, TRIPLANE_ELEVATOR_HINGE_X, 0, TRIPLANE_TAIL_Z),
+    ),
+  ];
+
+  const triangleCount =
+    [...parts, ...propellerParts, ...leftParts, ...rightParts].reduce(
+      (sum, part) => sum + part.indices.length,
+      0,
+    ) / 3;
+
+  cachedTriplane = {
+    kind: MESH_KIND.Triplane,
+    referenceSpan: MESH_TRIPLANE_SPAN,
+    parts,
+    propellers,
+    elevonParts: { left: leftParts, right: rightParts },
+    elevonOrigin: [TRIPLANE_ELEVATOR_HINGE_X, 0, TRIPLANE_TAIL_Z],
+    staticParts,
+    // In the cockpit, barely tilted: it is looking over the middle wing and
+    // under the top one, which is the view the aeroplane was built around.
+    fpvCamera: { offset: [-0.132, 0, 0.104], tiltDegrees: 8 },
+    triangleCount,
+  };
+  return cachedTriplane;
+}
+
+// --- The FT P-38 Lightning --------------------------------------------------
+
+/**
+ * Procedural geometry for the FT Master Series P-38 Lightning.
+ *
+ * The one airframe here that is three fuselages. A 1.46 m taper-winged wing
+ * with a constant-chord centre section; two booms running through it, each with
+ * an engine nacelle and a spinner on the front and a fin on the back; a gondola
+ * slung between them with the canopy and the camera in it; a tailplane bridging
+ * the two fins with the elevator hinged into it; and a nosewheel under the
+ * gondola with the mains under the booms.
+ *
+ * The wing and the ailerons are lofted by the same code every other wing here
+ * is — a planform, a section and a hinge line. Everything else is a loft of its
+ * own, because nothing in the hangar has a shape to lend it.
+ *
+ * Two propellers rather than one, turning opposite ways: the kit ships a
+ * clockwise blade and an anticlockwise one, and a Lightning's engines
+ * counter-rotate. `PropellerGroup` already says which way each disc turns, so
+ * that costs nothing but the second entry.
+ *
+ * Same body frame as everything else: X = forward, Y = left, Z = up, origin at
+ * the centre of gravity, which on this one is 45 mm behind the wing's leading
+ * edge and on the wing chord line.
+ */
+
+/** Wing span of the P-38 this geometry was drawn from, metres. */
+export const MESH_P38_SPAN = 1.46;
+
+/**
+ * Root-to-tip stations: constant chord out to the booms, then taper.
+ *
+ * A P-38's centre section is the bit between the booms and it does not change
+ * shape across it, which is why the first two stations are identical and why
+ * the aeroplane looks square-shouldered from in front. What is outboard of the
+ * booms tapers and picks up a little dihedral, as the real one does.
+ */
+const P38_STATIONS: readonly Station[] = [
+  { y: 0.0, leading: 0.045, trailing: -0.172, thickness: 0.031, z: 0.0 },
+  { y: 0.185, leading: 0.045, trailing: -0.172, thickness: 0.03, z: 0.0 },
+  { y: 0.34, leading: 0.04, trailing: -0.162, thickness: 0.026, z: 0.005 },
+  { y: 0.5, leading: 0.031, trailing: -0.145, thickness: 0.021, z: 0.014 },
+  { y: 0.65, leading: 0.02, trailing: -0.123, thickness: 0.016, z: 0.025 },
+  { y: 0.73, leading: 0.01, trailing: -0.109, thickness: 0.012, z: 0.032 },
+];
+
+/** Chord fractions sampled across each section, nose to tail. */
+const P38_CHORD_SAMPLES = [0, 0.05, 0.16, 0.38, 0.66, 1] as const;
+
+/**
+ * The ailerons: outboard of the booms and out to the tip.
+ *
+ * Where a Lightning carries them, and — as on every other aeroplane here with
+ * a tail — they are drawn where they sit rather than moved. The one pair of
+ * hinged surfaces the mesh has to spend goes on the elevator.
+ */
+const P38_HINGE_X = -0.085;
+const P38_HINGE_Z = 0.02;
+const P38_FIRST_AILERON_STATION = 3;
+const P38_AILERON_SAMPLES = [0, 0.5, 1] as const;
+
+/**
+ * The section: a built-up foam board aerofoil rather than a folded sheet.
+ *
+ * The one part of a Master Series kit that is properly curved on top and very
+ * nearly flat underneath, which is what gives the aeroplane a cruise rather
+ * than an attitude.
+ */
+function p38UpperProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return 0.72 * Math.sin(Math.PI * Math.pow(f, 0.55));
+}
+
+function p38LowerProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return -0.22 * Math.sin(Math.PI * Math.pow(f, 0.85));
+}
+
+const P38_PLANFORM: Planform = {
+  stations: P38_STATIONS,
+  chordSamples: P38_CHORD_SAMPLES,
+  hingeX: P38_HINGE_X,
+  hingeZ: P38_HINGE_Z,
+  firstElevonStation: P38_FIRST_AILERON_STATION,
+  lastElevonStation: P38_STATIONS.length - 1,
+  elevonSamples: P38_AILERON_SAMPLES,
+  upper: p38UpperProfile,
+  lower: p38LowerProfile,
+};
+
+/** Where the booms run, and where the propellers turn on the front of them. */
+const P38_BOOM_Y = 0.185;
+const P38_BOOM_Z = 0.02;
+const P38_PROP_X = 0.47;
+/** Nine inches across, which is what the delivered combo swings on four cells. */
+const P38_PROP_RADIUS = (9 * 0.0254) / 2;
+
+/**
+ * Where the aeroplane touches the ground, and it has to be exactly here.
+ *
+ * `wheeledGroundContact` rests a tricycle undercarriage's reference point a
+ * twelfth of the span above the surface and holds it three degrees nose-up, so
+ * the wheels are put where that attitude actually puts them: solve the pitched
+ * ground plane for the body Z at each wheel and the aeroplane stands on all
+ * three rather than hovering over them or sinking a leg through. It comes out
+ * as a longer nose leg than mains, which is exactly what sitting nose-up on a
+ * nosewheel means.
+ *
+ * It is also what decides the propeller clearance, and on this airframe that
+ * is not a detail: nine-inch blades on a boom axis 20 mm above the chord line
+ * leave 52 mm under the tips in the attitude the aeroplane is parked in. The
+ * ten-inch propellers that come in the box would leave 27 mm, which is most of
+ * why the delivered combination is the nine.
+ */
+const P38_REST_HEIGHT = MESH_P38_SPAN / 12;
+const P38_REST_PITCH = (3 * Math.PI) / 180;
+
+function p38GroundZ(x: number): number {
+  return (
+    (-P38_REST_HEIGHT - x * Math.sin(P38_REST_PITCH)) / Math.cos(P38_REST_PITCH)
+  );
+}
+
+const P38_NOSE_WHEEL_X = 0.255;
+const P38_NOSE_WHEEL_RADIUS = 0.03;
+const P38_NOSE_WHEEL_Z = p38GroundZ(P38_NOSE_WHEEL_X) + P38_NOSE_WHEEL_RADIUS;
+const P38_MAIN_WHEEL_X = -0.03;
+const P38_MAIN_WHEEL_RADIUS = 0.036;
+const P38_MAIN_WHEEL_Z = p38GroundZ(P38_MAIN_WHEEL_X) + P38_MAIN_WHEEL_RADIUS;
+
+/** The tail: two fins on the boom ends, bridged by the tailplane. */
+const P38_TAIL_Z = 0.185;
+const P38_TAIL_HALF_SPAN = 0.215;
+const P38_TAIL_ROOT_GAP = 0.01;
+const P38_ELEVATOR_HINGE_X = -0.6;
+const P38_ELEVATOR_TRAIL = -0.662;
+
+/** Olive drab, the bands painted over it, and rubber. */
+const P38_SHELL_TOP: readonly [number, number, number] = [0.302, 0.325, 0.251];
+const P38_SHELL_BOTTOM: readonly [number, number, number] = [
+  0.212, 0.229, 0.184,
+];
+const P38_BAND: readonly [number, number, number] = [0.91, 0.894, 0.839];
+const P38_TYRE: readonly [number, number, number] = [0.08, 0.08, 0.085];
+
+/** How dark each panel is against the top of the wing. */
+const P38_BOTTOM_SHADE = 0.7;
+const P38_BOOM_SHADE = 0.9;
+const P38_TAIL_SHADE = 0.95;
+
+/**
+ * One station of a boom or of the gondola: a squared-off oval.
+ *
+ * Three lofted bodies on one aeroplane and the same four numbers describe a
+ * station of any of them — how far forward, how wide, and how far the skin
+ * reaches above and below its own axis.
+ */
+interface P38Ring {
+  x: number;
+  halfWidth: number;
+  top: number;
+  bottom: number;
+}
+
+/** How many facets each station is drawn with. */
+const P38_BODY_SEGMENTS = 10;
+
+/** One point on a station: an ellipse squared off, as a moulded body is. */
+function p38RingPoint(
+  ring: P38Ring,
+  angle: number,
+  y: number,
+  z: number,
+): Point {
+  const shape = (v: number) => Math.sign(v) * Math.pow(Math.abs(v), 0.8);
+  const s = Math.sin(angle);
+  const height = s >= 0 ? ring.top : -ring.bottom;
+  return [
+    ring.x,
+    y + shape(Math.cos(angle)) * ring.halfWidth,
+    z + shape(s) * height,
+  ];
+}
+
+/**
+ * One lofted body, nose cone to tail cone, wound outwards.
+ *
+ * Stations run front to back. The two cones are closed onto a point on the
+ * axis rather than left open, so each body is a solid that a back-face-culled
+ * renderer can be trusted with.
+ */
+function buildP38Body(
+  part: PartBuilder,
+  rings: readonly P38Ring[],
+  y: number,
+  z: number,
+  nose: number,
+  tail: number,
+): void {
+  const segments = P38_BODY_SEGMENTS;
+  for (let i = 0; i + 1 < rings.length; i += 1) {
+    const front = rings[i]!;
+    const back = rings[i + 1]!;
+    for (let j = 0; j < segments; j += 1) {
+      const a0 = (j / segments) * Math.PI * 2;
+      const a1 = ((j + 1) / segments) * Math.PI * 2;
+      part.quad(
+        p38RingPoint(front, a0, y, z),
+        p38RingPoint(back, a0, y, z),
+        p38RingPoint(back, a1, y, z),
+        p38RingPoint(front, a1, y, z),
+      );
+    }
+  }
+  const first = rings[0]!;
+  const last = rings[rings.length - 1]!;
+  for (let j = 0; j < segments; j += 1) {
+    const a0 = (j / segments) * Math.PI * 2;
+    const a1 = ((j + 1) / segments) * Math.PI * 2;
+    part.triangle(
+      [nose, y, z],
+      p38RingPoint(first, a0, y, z),
+      p38RingPoint(first, a1, y, z),
+    );
+    part.triangle(
+      [tail, y, z],
+      p38RingPoint(last, a1, y, z),
+      p38RingPoint(last, a0, y, z),
+    );
+  }
+}
+
+/**
+ * One boom: the engine nacelle, the turbo deck behind it and the tail.
+ *
+ * Deeper than it is wide all the way along, which is what a Lightning's boom
+ * is — an engine, a radiator and a turbocharger stacked in a line — and what
+ * gives the aeroplane the side area that makes it track.
+ */
+const P38_BOOM: readonly P38Ring[] = [
+  { x: 0.415, halfWidth: 0.028, top: 0.028, bottom: -0.028 },
+  { x: 0.37, halfWidth: 0.04, top: 0.042, bottom: -0.04 },
+  { x: 0.29, halfWidth: 0.044, top: 0.05, bottom: -0.046 },
+  { x: 0.15, halfWidth: 0.044, top: 0.052, bottom: -0.05 },
+  { x: 0.02, halfWidth: 0.042, top: 0.048, bottom: -0.048 },
+  { x: -0.12, halfWidth: 0.038, top: 0.044, bottom: -0.042 },
+  { x: -0.28, halfWidth: 0.032, top: 0.038, bottom: -0.034 },
+  { x: -0.44, halfWidth: 0.026, top: 0.032, bottom: -0.026 },
+  { x: -0.56, halfWidth: 0.02, top: 0.026, bottom: -0.02 },
+  { x: -0.64, halfWidth: 0.012, top: 0.016, bottom: -0.012 },
+];
+
+/**
+ * The gondola: the crew nacelle between the booms.
+ *
+ * Everything that is not engine lives in here, which on one of these is the
+ * cockpit and on one of ours is the pack, the receiver and the camera. It is
+ * the deepest part of the aeroplane and the only part of it a pilot sees from
+ * the inside.
+ */
+const P38_GONDOLA: readonly P38Ring[] = [
+  { x: 0.345, halfWidth: 0.022, top: 0.024, bottom: -0.024 },
+  { x: 0.3, halfWidth: 0.04, top: 0.04, bottom: -0.04 },
+  { x: 0.23, halfWidth: 0.052, top: 0.052, bottom: -0.05 },
+  { x: 0.12, halfWidth: 0.056, top: 0.058, bottom: -0.058 },
+  { x: 0.02, halfWidth: 0.056, top: 0.056, bottom: -0.06 },
+  { x: -0.08, halfWidth: 0.05, top: 0.048, bottom: -0.054 },
+  { x: -0.19, halfWidth: 0.038, top: 0.038, bottom: -0.04 },
+  { x: -0.28, halfWidth: 0.024, top: 0.026, bottom: -0.024 },
+];
+
+/**
+ * The canopy, and the camera behind the windscreen.
+ *
+ * A Lightning's greenhouse is a squared-off box rather than a blown bubble, so
+ * it is drawn as one — and the camera sits where the pilot's head does, looking
+ * out over the nose between the two engines, which is the view this aeroplane
+ * was designed around and the reason a twin is a pleasant thing to fly from the
+ * inside.
+ */
+function buildP38Canopy(canopy: PartBuilder, lens: PartBuilder): void {
+  canopy.box([0.02, -0.036, 0.05], [0.165, 0.036, 0.084]);
+  const glass: Point[] = [
+    [0.168, -0.032, 0.056],
+    [0.172, -0.032, 0.08],
+    [0.172, 0.032, 0.08],
+    [0.168, 0.032, 0.056],
+  ];
+  lens.plate(glass, 0.005, 0);
+}
+
+/**
+ * Fin, rudder and tailplane.
+ *
+ * Two fins, one on the end of each boom, with the tailplane bridging them and
+ * reaching a little past each — which is the shape that makes a P-38 a P-38
+ * from behind. The fins carry on above the tailplane, as the real ones do. The
+ * rudders are drawn with the fins: the flight model has one pair of hinged
+ * surfaces to spend and it spends them on the elevator.
+ */
+function buildP38Tail(tail: PartBuilder): void {
+  for (const sign of [1, -1] as const) {
+    const y = P38_BOOM_Y * sign;
+    const fin: Point[] = [
+      [-0.455, y, 0.05],
+      [-0.52, y, 0.215],
+      [-0.63, y, 0.215],
+      [-0.66, y, 0.1],
+      [-0.65, y, 0.045],
+    ];
+    tail.plate(fin, 0.01, 1);
+  }
+
+  const z = P38_TAIL_Z;
+  const span = P38_TAIL_HALF_SPAN;
+  const stabiliser: Point[] = [
+    [-0.525, span, z],
+    [P38_ELEVATOR_HINGE_X, span, z],
+    [P38_ELEVATOR_HINGE_X, -span, z],
+    [-0.525, -span, z],
+  ];
+  tail.plate(stabiliser, 0.012, 2);
+}
+
+/** One half of the elevator, in a frame whose origin sits on its hinge. */
+function buildP38Elevator(part: PartBuilder, sign: number): void {
+  const inner = P38_TAIL_ROOT_GAP * sign;
+  const outer = P38_TAIL_HALF_SPAN * sign;
+  const back = P38_ELEVATOR_TRAIL - P38_ELEVATOR_HINGE_X;
+  const outline: Point[] = [
+    [0, inner, 0],
+    [0, outer, 0],
+    [back, outer, 0],
+    [back, inner, 0],
+  ];
+  part.plate(outline, 0.012, 2);
+}
+
+/**
+ * The undercarriage: a nose leg under the gondola and a main under each boom.
+ *
+ * The first fighter with a nosewheel, and the reason this one is rotated off a
+ * runway rather than simply leaving it. The mains sit a fraction behind the
+ * centre of gravity and the nose leg a quarter of a metre in front of it,
+ * which is what stops the aeroplane sitting back on its tails and what lets
+ * the elevator pick the nose up first.
+ */
+function buildP38Gear(legs: PartBuilder, tyres: PartBuilder): void {
+  legs.box(
+    [P38_NOSE_WHEEL_X - 0.013, -0.011, P38_NOSE_WHEEL_Z],
+    [P38_NOSE_WHEEL_X + 0.013, 0.011, -0.044],
+  );
+  buildWheel(
+    tyres,
+    P38_NOSE_WHEEL_X,
+    0,
+    P38_NOSE_WHEEL_Z,
+    P38_NOSE_WHEEL_RADIUS,
+    0.028,
+  );
+
+  for (const sign of [1, -1] as const) {
+    const y = P38_BOOM_Y * sign;
+    legs.box(
+      [P38_MAIN_WHEEL_X - 0.016, y - 0.013, P38_MAIN_WHEEL_Z],
+      [P38_MAIN_WHEEL_X + 0.016, y + 0.013, -0.024],
+    );
+    buildWheel(
+      tyres,
+      P38_MAIN_WHEEL_X,
+      y,
+      P38_MAIN_WHEEL_Z,
+      P38_MAIN_WHEEL_RADIUS,
+      0.034,
+    );
+  }
+}
+
+/**
+ * The identification bands, which is what an accent is on this aeroplane.
+ *
+ * A twin-boom aeroplane is hard to read end-on and the Eighth Air Force solved
+ * it by painting the booms and the tails, so that is where the second colour
+ * goes: a sleeve around each boom aft of the wing, and a band across each end
+ * of the tailplane. Sitting a millimetre and a half proud of the skin, so it
+ * cannot fight the shell for the same pixels.
+ */
+function buildP38Bands(accent: PartBuilder): void {
+  const proud = 0.0015;
+  const grow = (ring: P38Ring): P38Ring => ({
+    x: ring.x,
+    halfWidth: ring.halfWidth + proud,
+    top: ring.top + proud,
+    bottom: ring.bottom - proud,
+  });
+  const front = grow({ x: -0.3, halfWidth: 0.0315, top: 0.0375, bottom: -0.0335 });
+  const back = grow({ x: -0.36, halfWidth: 0.0295, top: 0.0355, bottom: -0.031 });
+  const segments = P38_BODY_SEGMENTS;
+  for (const sign of [1, -1] as const) {
+    const y = P38_BOOM_Y * sign;
+    for (let j = 0; j < segments; j += 1) {
+      const a0 = (j / segments) * Math.PI * 2;
+      const a1 = ((j + 1) / segments) * Math.PI * 2;
+      accent.quad(
+        p38RingPoint(front, a0, y, P38_BOOM_Z),
+        p38RingPoint(back, a0, y, P38_BOOM_Z),
+        p38RingPoint(back, a1, y, P38_BOOM_Z),
+        p38RingPoint(front, a1, y, P38_BOOM_Z),
+      );
+    }
+
+    const tip: Point[] = [
+      [-0.53, (P38_TAIL_HALF_SPAN - 0.045) * sign, P38_TAIL_Z + 0.0075],
+      [P38_ELEVATOR_HINGE_X, (P38_TAIL_HALF_SPAN - 0.045) * sign, P38_TAIL_Z + 0.0075],
+      [P38_ELEVATOR_HINGE_X, P38_TAIL_HALF_SPAN * sign, P38_TAIL_Z + 0.0075],
+      [-0.53, P38_TAIL_HALF_SPAN * sign, P38_TAIL_Z + 0.0075],
+    ];
+    accent.plate(tip, 0.002, 2);
+  }
+}
+
+/**
+ * One propeller, in its own frame with the hub at zero.
+ *
+ * Two blades, because that is what comes in the box — the full-size aeroplane
+ * turned three of them and the kit does not. The spinner is built into the same
+ * group so it turns with the blades, and it wears the accent colour, because a
+ * painted spinner is the first thing anybody puts on a warbird.
+ */
+function buildP38Propeller(prop: PartBuilder, spinner: PartBuilder): void {
+  const radius = P38_PROP_RADIUS;
+  const blade = (direction: 1 | -1): Point[] => {
+    const points: Point[] = [
+      [0, 0.013, 0.02 * direction],
+      [0, 0.019, 0.058 * direction],
+      [0, 0.011, radius * direction],
+      [0, -0.01, radius * 0.93 * direction],
+      [0, -0.016, 0.055 * direction],
+      [0, -0.011, 0.018 * direction],
+    ];
+    return direction === 1 ? points : points.slice().reverse();
+  };
+  prop.plate(blade(1), 0.006, 0);
+  prop.plate(blade(-1), 0.006, 0);
+
+  // A pointed spinner over the hub, drawn back to where the nacelle starts.
+  const segments = 12;
+  const base = -0.045;
+  const hubRadius = 0.028;
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    const rim = (angle: number): Point => [
+      base,
+      Math.cos(angle) * hubRadius,
+      Math.sin(angle) * hubRadius,
+    ];
+    spinner.triangle([0.036, 0, 0], rim(a0), rim(a1));
+    spinner.triangle([base, 0, 0], rim(a1), rim(a0));
+  }
+}
+
+let cachedP38: AircraftMesh | null = null;
+
+/** Builds (once) and returns the FT P-38 Lightning mesh. */
+export function buildP38Mesh(): AircraftMesh {
+  if (cachedP38) return cachedP38;
+
+  const top = new PartBuilder("p38-top", P38_SHELL_TOP, PAINT.Shell);
+  const bottom = new PartBuilder(
+    "p38-bottom",
+    P38_SHELL_BOTTOM,
+    PAINT.Shell,
+    P38_BOTTOM_SHADE,
+  );
+  const booms = new PartBuilder(
+    "p38-booms",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+    P38_BOOM_SHADE,
+  );
+  const gondola = new PartBuilder(
+    "p38-gondola",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+    P38_BOOM_SHADE,
+  );
+  const canopy = new PartBuilder(
+    "p38-canopy",
+    P38_SHELL_BOTTOM,
+    PAINT.Shell,
+    P38_BOTTOM_SHADE,
+  );
+  const tail = new PartBuilder(
+    "p38-tail",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+    P38_TAIL_SHADE,
+  );
+  const accent = new PartBuilder("p38-bands", P38_BAND, PAINT.Accent);
+  const legs = new PartBuilder("p38-gear", MOTOR);
+  const tyres = new PartBuilder("p38-tyres", P38_TYRE);
+  const lens = new PartBuilder("p38-lens", LENS);
+  const aileronLeft = new PartBuilder("p38-aileron-left", P38_SHELL_TOP, PAINT.Shell);
+  const aileronRight = new PartBuilder(
+    "p38-aileron-right",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronUnderLeft = new PartBuilder(
+    "p38-aileron-left-bottom",
+    P38_SHELL_BOTTOM,
+    PAINT.Shell,
+    P38_BOTTOM_SHADE,
+  );
+  const aileronUnderRight = new PartBuilder(
+    "p38-aileron-right-bottom",
+    P38_SHELL_BOTTOM,
+    PAINT.Shell,
+    P38_BOTTOM_SHADE,
+  );
+  const elevatorLeft = new PartBuilder(
+    "p38-elevator-left",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+    P38_TAIL_SHADE,
+  );
+  const elevatorRight = new PartBuilder(
+    "p38-elevator-right",
+    P38_SHELL_TOP,
+    PAINT.Shell,
+    P38_TAIL_SHADE,
+  );
+
+  buildWing(P38_PLANFORM, top, bottom);
+  buildElevon(P38_PLANFORM, aileronLeft, 1, aileronUnderLeft);
+  buildElevon(P38_PLANFORM, aileronRight, -1, aileronUnderRight);
+  for (const sign of [1, -1] as const) {
+    buildP38Body(booms, P38_BOOM, P38_BOOM_Y * sign, P38_BOOM_Z, 0.425, -0.665);
+  }
+  buildP38Body(gondola, P38_GONDOLA, 0, 0, 0.365, -0.32);
+  buildP38Canopy(canopy, lens);
+  buildP38Tail(tail);
+  buildP38Elevator(elevatorLeft, 1);
+  buildP38Elevator(elevatorRight, -1);
+  buildP38Gear(legs, tyres);
+  buildP38Bands(accent);
+
+  // Two propellers, and the same two parts built twice: the group carries the
+  // hub and which way the disc turns, so one blade shape does for both sides.
+  const propellers: PropellerGroup[] = [];
+  const propellerParts: MeshPart[] = [];
+  for (const sign of [1, -1] as const) {
+    const blades = new PartBuilder(
+      sign > 0 ? "p38-propeller-left" : "p38-propeller-right",
+      MOTOR,
+    );
+    const spinner = new PartBuilder(
+      sign > 0 ? "p38-spinner-left" : "p38-spinner-right",
+      P38_BAND,
+      PAINT.Accent,
+    );
+    buildP38Propeller(blades, spinner);
+    const parts = [blades.build(), spinner.build()].filter(
+      (part): part is MeshPart => part !== null,
+    );
+    propellerParts.push(...parts);
+    propellers.push({
+      name: sign > 0 ? "p38-propeller-left" : "p38-propeller-right",
+      origin: [P38_PROP_X, P38_BOOM_Y * sign, P38_BOOM_Z],
+      axis: "x",
+      // Counter-rotating, as a Lightning's are and as the opposite-handed
+      // blades in the box make them.
+      direction: sign > 0 ? 1 : -1,
+      parts,
+    });
+  }
+
+  // The ailerons are drawn where they sit and stay there: the hinge line is in
+  // the wing, and the surface that moves is the elevator between the fins.
+  const ailerons = [
+    aileronLeft.build(),
+    aileronUnderLeft.build(),
+    aileronRight.build(),
+    aileronUnderRight.build(),
+  ]
+    .filter((part): part is MeshPart => part !== null)
+    .map((part) => translated(part, P38_HINGE_X, 0, P38_HINGE_Z));
+  const parts = [
+    ...[top, bottom, booms, gondola, canopy, tail, accent, legs, tyres, lens]
+      .map((builder) => builder.build())
+      .filter((part): part is MeshPart => part !== null),
+    ...ailerons,
+  ];
+
+  const leftParts = [elevatorLeft.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const rightParts = [elevatorRight.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const staticParts = [
+    ...parts,
+    ...[...leftParts, ...rightParts].map((part) =>
+      translated(part, P38_ELEVATOR_HINGE_X, 0, P38_TAIL_Z),
+    ),
+  ];
+
+  const triangleCount =
+    [...parts, ...propellerParts, ...leftParts, ...rightParts].reduce(
+      (sum, part) => sum + part.indices.length,
+      0,
+    ) / 3;
+
+  cachedP38 = {
+    kind: MESH_KIND.P38,
+    referenceSpan: MESH_P38_SPAN,
+    parts,
+    propellers,
+    elevonParts: { left: leftParts, right: rightParts },
+    elevonOrigin: [P38_ELEVATOR_HINGE_X, 0, P38_TAIL_Z],
+    staticParts,
+    // In the canopy, behind the windscreen: a Lightning's pilot sits ahead of
+    // the wing with nothing in front of him, which is the best view out of
+    // anything in the hangar.
+    fpvCamera: { offset: [0.1, 0, 0.07], tiltDegrees: 5 },
+    triangleCount,
+  };
+  return cachedP38;
+}
+
+// --- The FT Baby Blender MKR2 -----------------------------------------------
+
+/**
+ * Procedural geometry for the FT Baby Blender MKR2.
+ *
+ * Flite Test's four-channel biplane in foam board, and it is drawn from the
+ * kit's own plans: two 610 mm wings of a 160 mm chord, the upper one staggered
+ * 48 mm ahead of the lower and 99 mm above it; a slab-sided fuselage 370 mm
+ * long with a rounded poster-board turtle deck over it; the swappable power pod
+ * in the nose with the firewall and the motor on the front of it; one wide
+ * interplane strut a side out at two thirds of the semi-span and two cabanes
+ * carrying the top wing over the decking; a tall fin and rudder with a broad
+ * tailplane under it; and two 2.75-inch wheels on wire legs with a tailwheel
+ * behind them.
+ *
+ * Both wings are lofted by the same code the flying wings are, from two
+ * planforms rather than one. Only the top wing has anything hinged in it —
+ * ailerons, where a biplane carries them — and, as on every other aeroplane
+ * here with a tail, they are drawn where they sit and it is the elevator that
+ * moves.
+ *
+ * Same body frame as everything else: X = forward, Y = left, Z = up, origin at
+ * the centre of gravity, which on this one is exactly 80 mm behind the top
+ * wing's leading edge because that is the number on the box.
+ */
+
+/** Wing span of the biplane this geometry was drawn from, metres. */
+export const MESH_BABY_BLENDER_SPAN = 0.61;
+
+/**
+ * Where each wing sits, fore and aft and up and down.
+ *
+ * The stagger is the whole reason the kit quotes its centre of gravity against
+ * the *top* wing: the two leading edges are not in the same place, so one of
+ * them has to be named. The gap is the interplane strut, which the plans draw
+ * at 3.878 inches.
+ */
+const BLENDER_TOP_LEADING = 0.08;
+const BLENDER_TOP_TRAILING = -0.08;
+const BLENDER_LOWER_LEADING = 0.032;
+const BLENDER_LOWER_TRAILING = -0.128;
+const BLENDER_TOP_Z = 0.071;
+const BLENDER_LOWER_Z = -0.028;
+
+/** Half the span, which both wings have. */
+const BLENDER_HALF_SPAN = MESH_BABY_BLENDER_SPAN / 2;
+
+/**
+ * The aileron hinge, a quarter of the chord forward of the trailing edge.
+ *
+ * On the top wing and nowhere else. The lower wing is lofted by the same code
+ * with nothing cut out of it, which is what a planform whose last elevon
+ * station comes before its first means.
+ */
+const BLENDER_HINGE_X = BLENDER_TOP_TRAILING + 0.038;
+const BLENDER_HINGE_Z = BLENDER_TOP_Z;
+const BLENDER_AILERON_SAMPLES = [0, 0.5, 1] as const;
+
+/** Chord fractions sampled across each section, nose to tail. */
+const BLENDER_CHORD_SAMPLES = [0, 0.05, 0.16, 0.38, 0.67, 1] as const;
+
+/**
+ * The v.2 revision's "higher lift airfoil", as a fraction of thickness.
+ *
+ * The one thing Flite Test say they changed about this wing, and the reason it
+ * is not the folded sheet the earlier swappables used: a properly curved top
+ * with its high point well forward over a nearly flat bottom. It is 11% thick,
+ * which on a 160 mm chord is the 17 mm the fold actually leaves.
+ */
+function blenderUpperProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return 0.98 * Math.sin(Math.PI * Math.pow(f, 0.42));
+}
+
+function blenderLowerProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return -0.1 * Math.sin(Math.PI * Math.pow(f, 0.85));
+}
+
+/**
+ * One wing's stations.
+ *
+ * Constant chord all the way out, which is what a foam board wing cut from a
+ * rectangle is, with the corner taken off the tip and a poster-board plate
+ * closing it — the kit contains four of those and they are what stop a folded
+ * wing from being an open box at both ends.
+ */
+function blenderStations(z: number, leading: number, trailing: number): Station[] {
+  return [
+    { y: 0, leading, trailing, thickness: 0.017, z },
+    { y: BLENDER_HALF_SPAN * 0.25, leading, trailing, thickness: 0.017, z },
+    { y: BLENDER_HALF_SPAN * 0.55, leading, trailing, thickness: 0.017, z },
+    { y: BLENDER_HALF_SPAN * 0.88, leading, trailing, thickness: 0.016, z },
+    {
+      y: BLENDER_HALF_SPAN,
+      leading: leading - 0.012,
+      trailing: trailing + 0.004,
+      thickness: 0.014,
+      z,
+    },
+  ];
+}
+
+const BLENDER_TOP_STATIONS = blenderStations(
+  BLENDER_TOP_Z,
+  BLENDER_TOP_LEADING,
+  BLENDER_TOP_TRAILING,
+);
+const BLENDER_LOWER_STATIONS = blenderStations(
+  BLENDER_LOWER_Z,
+  BLENDER_LOWER_LEADING,
+  BLENDER_LOWER_TRAILING,
+);
+
+/** The top wing, and the only one with a moving surface in it. */
+const BLENDER_TOP_PLANFORM: Planform = {
+  stations: BLENDER_TOP_STATIONS,
+  chordSamples: BLENDER_CHORD_SAMPLES,
+  hingeX: BLENDER_HINGE_X,
+  hingeZ: BLENDER_HINGE_Z,
+  firstElevonStation: 1,
+  lastElevonStation: BLENDER_TOP_STATIONS.length - 1,
+  elevonSamples: BLENDER_AILERON_SAMPLES,
+  upper: blenderUpperProfile,
+  lower: blenderLowerProfile,
+};
+
+/** The lower wing: the same section, and nothing cut out of it. */
+const BLENDER_LOWER_PLANFORM: Planform = {
+  stations: BLENDER_LOWER_STATIONS,
+  chordSamples: BLENDER_CHORD_SAMPLES,
+  hingeX: BLENDER_LOWER_TRAILING + 0.038,
+  hingeZ: BLENDER_LOWER_Z,
+  firstElevonStation: 0,
+  lastElevonStation: -1,
+  elevonSamples: BLENDER_AILERON_SAMPLES,
+  upper: blenderUpperProfile,
+  lower: blenderLowerProfile,
+};
+
+/** Bare water-resistant board, a painted cowl, rubber and a wooden pod. */
+const BLENDER_SHELL_TOP: readonly [number, number, number] = [
+  0.925, 0.918, 0.894,
+];
+const BLENDER_SHELL_BOTTOM: readonly [number, number, number] = [
+  0.66, 0.655, 0.639,
+];
+const BLENDER_TRIM: readonly [number, number, number] = [0.784, 0.196, 0.173];
+const BLENDER_TYRE: readonly [number, number, number] = [0.09, 0.09, 0.095];
+
+/** How dark each panel is against the top of the wings. */
+const BLENDER_BOTTOM_SHADE = 0.71;
+const BLENDER_BODY_SHADE = 0.88;
+const BLENDER_TAIL_SHADE = 0.94;
+
+/** Where the propeller turns, and how big it is. */
+const BLENDER_PROP_X = 0.17;
+const BLENDER_PROP_AXIS_Z = -0.002;
+/** Ten inches across, which is what Power Pack C puts in the box. */
+const BLENDER_PROP_RADIUS = (10 * 0.0254) / 2;
+
+/**
+ * Where the aeroplane touches the ground, and it has to be exactly here.
+ *
+ * The ground model rests a taildragger's reference point a fifth of its span
+ * above the surface and holds it twelve degrees nose-up, so the wheels are put
+ * where that attitude actually puts them: solve the pitched ground plane for
+ * the body Z at each contact point and the aeroplane stands on all three rather
+ * than hovering over them or sinking through.
+ */
+const BLENDER_REST_HEIGHT = MESH_BABY_BLENDER_SPAN / 4.8;
+const BLENDER_REST_PITCH = (12 * Math.PI) / 180;
+
+function blenderGroundZ(x: number): number {
+  return (
+    (-BLENDER_REST_HEIGHT - x * Math.sin(BLENDER_REST_PITCH)) /
+    Math.cos(BLENDER_REST_PITCH)
+  );
+}
+
+/** 2.75 inches across, which is the wheel pair the store sells with the kit. */
+const BLENDER_WHEEL_RADIUS = (2.75 * 0.0254) / 2;
+const BLENDER_WHEEL_X = 0.075;
+const BLENDER_WHEEL_Y = 0.088;
+const BLENDER_WHEEL_Z = blenderGroundZ(BLENDER_WHEEL_X) + BLENDER_WHEEL_RADIUS;
+const BLENDER_TAILWHEEL_X = -0.225;
+const BLENDER_TAILWHEEL_RADIUS = 0.012;
+const BLENDER_TAILWHEEL_Z =
+  blenderGroundZ(BLENDER_TAILWHEEL_X) + BLENDER_TAILWHEEL_RADIUS;
+
+/** The tailplane, and where the elevator hinges in it. */
+const BLENDER_TAIL_Z = -0.012;
+const BLENDER_TAIL_HALF_SPAN = 0.152;
+const BLENDER_TAIL_ROOT_GAP = 0.009;
+const BLENDER_TAIL_LEADING = -0.15;
+const BLENDER_ELEVATOR_HINGE_X = -0.225;
+const BLENDER_ELEVATOR_TRAIL = -0.275;
+
+/** One fuselage station: a slab-sided box with a rounded decking on top. */
+interface BlenderRing {
+  x: number;
+  halfWidth: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * The fuselage, nose to tail post.
+ *
+ * The kit's fuselage sides are 13.5 inches long and 3.32 deep and the formers
+ * are 2.75 wide, which is the box; the decking above it is the two poster-board
+ * turtle decks, which is why the top of every station is rounded and the sides
+ * are flat.
+ */
+const BLENDER_BODY: readonly BlenderRing[] = [
+  { x: 0.135, halfWidth: 0.034, top: 0.032, bottom: -0.05 },
+  { x: 0.08, halfWidth: 0.035, top: 0.036, bottom: -0.052 },
+  { x: 0.01, halfWidth: 0.035, top: 0.038, bottom: -0.052 },
+  { x: -0.06, halfWidth: 0.033, top: 0.036, bottom: -0.048 },
+  { x: -0.125, halfWidth: 0.028, top: 0.032, bottom: -0.04 },
+  { x: -0.185, halfWidth: 0.019, top: 0.026, bottom: -0.028 },
+  { x: -0.235, halfWidth: 0.009, top: 0.02, bottom: -0.018 },
+];
+
+function blenderRingPoints(ring: BlenderRing): Point[] {
+  const w = ring.halfWidth;
+  const t = ring.top;
+  const b = ring.bottom;
+  return [
+    [ring.x, 0, t],
+    [ring.x, w * 0.68, t * 0.9],
+    [ring.x, w, t * 0.36],
+    [ring.x, w, b * 0.6],
+    [ring.x, w * 0.85, b],
+    [ring.x, 0, b],
+    [ring.x, -w * 0.85, b],
+    [ring.x, -w, b * 0.6],
+    [ring.x, -w, t * 0.36],
+    [ring.x, -w * 0.68, t * 0.9],
+  ];
+}
+
+function buildBlenderBody(body: PartBuilder): void {
+  for (let i = 0; i + 1 < BLENDER_BODY.length; i += 1) {
+    const a = blenderRingPoints(BLENDER_BODY[i]!);
+    const b = blenderRingPoints(BLENDER_BODY[i + 1]!);
+    for (let k = 0; k < a.length; k += 1) {
+      const k2 = (k + 1) % a.length;
+      body.quad(a[k]!, a[k2]!, b[k2]!, b[k]!);
+    }
+  }
+  // A flat cap rather than a nose: the front of this fuselage is the hole the
+  // power pod slides into, and the pod's own firewall is what closes it.
+  const front = blenderRingPoints(BLENDER_BODY[0]!);
+  for (let k = 1; k + 1 < front.length; k += 1) {
+    body.triangle(front[0]!, front[k + 1]!, front[k]!);
+  }
+  const back = blenderRingPoints(BLENDER_BODY[BLENDER_BODY.length - 1]!);
+  const post: Point = [-0.245, 0, 0.001];
+  for (let k = 0; k < back.length; k += 1) {
+    body.triangle(post, back[k]!, back[(k + 1) % back.length]!);
+  }
+}
+
+/**
+ * The swappable power pod, which is the whole point of a Swappable.
+ *
+ * A square foam board tube with a plywood firewall on the front of it and the
+ * motor bolted through that. It slides into the nose of the fuselage and is
+ * held there by two barbecue skewers, so it comes out with the motor, the
+ * controller and the pack still in it and goes into the next aeroplane — which
+ * is the idea Josh Bixler built the series around, and the reason this airframe
+ * is drawn with a seam across its nose rather than a moulded one.
+ */
+function buildBlenderPod(pod: PartBuilder, firewall: PartBuilder): void {
+  pod.box([0.125, -0.03, -0.036], [0.172, 0.03, 0.026]);
+  const plate: Point[] = [
+    [0.174, 0.032, 0.028],
+    [0.174, -0.032, 0.028],
+    [0.174, -0.032, -0.038],
+    [0.174, 0.032, -0.038],
+  ];
+  firewall.plate(plate, 0.005, 0);
+}
+
+/**
+ * What holds the two wings apart.
+ *
+ * One strut a side out at two thirds of the semi-span, and two cabanes a side
+ * over the decking carrying the top wing across the fuselage. The plans draw
+ * the interplane strut at 3.878 inches long and 1.19 wide, which is the gap and
+ * a fifth of the chord — a post rather than a wall, and it leans forward with
+ * the stagger because the two wings it joins have their leading edges 48 mm
+ * apart. Four struts on a biplane against eight on a triplane, which is half
+ * the reason this aeroplane is the cleaner of the two.
+ */
+function buildBlenderStruts(struts: PartBuilder): void {
+  const width = 0.03;
+  for (const sign of [1, -1] as const) {
+    const y = 0.165 * sign;
+    // Centred a third of the chord back on each wing, which is where the spar
+    // is and the only place a foam board strut has anything to glue to.
+    const topX = BLENDER_TOP_LEADING - 0.055;
+    const lowerX = BLENDER_LOWER_LEADING - 0.055;
+    const post: Point[] = [
+      [topX + width / 2, y, BLENDER_TOP_Z - 0.005],
+      [topX - width / 2, y, BLENDER_TOP_Z - 0.005],
+      [lowerX - width / 2, y, BLENDER_LOWER_Z + 0.005],
+      [lowerX + width / 2, y, BLENDER_LOWER_Z + 0.005],
+    ];
+    struts.plate(post, 0.005, 1);
+
+    for (const x of [0.055, -0.035] as const) {
+      buildRoundStrut(
+        struts,
+        [x + 0.02, 0.03 * sign, 0.03],
+        [x, 0.026 * sign, BLENDER_TOP_Z - 0.005],
+        0.0035,
+      );
+    }
+  }
+}
+
+/**
+ * Fin, rudder and tailplane.
+ *
+ * The fin is drawn as one piece with the rudder behind it — the flight model
+ * has one pair of hinged surfaces to spend and it spends them on the elevator —
+ * and the tailplane is the broad one the plans draw: 305 mm across on an
+ * aeroplane whose wings are 610, which is half the span of the aircraft in
+ * tail.
+ */
+function buildBlenderTail(tail: PartBuilder): void {
+  const fin: Point[] = [
+    [-0.115, 0, 0.03],
+    [-0.185, 0, 0.128],
+    [-0.234, 0, 0.128],
+    [-0.272, 0, 0.072],
+    [-0.268, 0, 0.006],
+    [-0.19, 0, 0.014],
+  ];
+  tail.plate(fin, 0.006, 1);
+
+  const z = BLENDER_TAIL_Z;
+  const span = BLENDER_TAIL_HALF_SPAN;
+  const hinge = BLENDER_ELEVATOR_HINGE_X;
+  const stabiliser: Point[] = [
+    [BLENDER_TAIL_LEADING, 0, z],
+    [BLENDER_TAIL_LEADING + 0.03, span, z],
+    [hinge, span, z],
+    [hinge, -span, z],
+    [BLENDER_TAIL_LEADING + 0.03, -span, z],
+  ];
+  tail.plate(stabiliser, 0.008, 2);
+}
+
+/**
+ * One half of the elevator, in a frame whose origin sits on its hinge.
+ *
+ * Cut away at the root for the rudder to swing in, which is the notch the plans
+ * put in the middle of this part and the reason a biplane can have a rudder
+ * this size on a fuselage this short.
+ */
+function buildBlenderElevator(part: PartBuilder, sign: number): void {
+  const inner = BLENDER_TAIL_ROOT_GAP * sign;
+  const outer = BLENDER_TAIL_HALF_SPAN * sign;
+  const trail = BLENDER_ELEVATOR_TRAIL - BLENDER_ELEVATOR_HINGE_X;
+  const outline: Point[] = [
+    [0, inner, 0],
+    [0, outer, 0],
+    [trail + 0.012, outer, 0],
+    [trail, 0.05 * sign, 0],
+    [trail + 0.026, inner, 0],
+  ];
+  part.plate(outline, 0.008, 2);
+}
+
+/**
+ * The undercarriage: two wheels on wire legs, and a tailwheel behind.
+ *
+ * The hardware pack contains two medium landing gear wires and one thin one,
+ * which is exactly this: a leg a side bent down and out to a 2.75-inch wheel
+ * ahead of the centre of gravity, and a thin one under the rudder carrying a
+ * wheel small enough to be an afterthought. The two mains and the tailwheel are
+ * the three points the aeroplane stands on, and they are what put its wing at
+ * twelve degrees before it has moved.
+ */
+function buildBlenderGear(legs: PartBuilder, tyres: PartBuilder): void {
+  for (const sign of [1, -1] as const) {
+    const y = BLENDER_WHEEL_Y * sign;
+    const hub: Point = [BLENDER_WHEEL_X, y, BLENDER_WHEEL_Z];
+    buildRoundStrut(legs, [0.058, 0.016 * sign, -0.05], hub, 0.0035);
+    buildWheel(
+      tyres,
+      BLENDER_WHEEL_X,
+      y,
+      BLENDER_WHEEL_Z,
+      BLENDER_WHEEL_RADIUS,
+      0.018,
+    );
+  }
+
+  buildRoundStrut(
+    legs,
+    [-0.2, 0, -0.026],
+    [BLENDER_TAILWHEEL_X, 0, BLENDER_TAILWHEEL_Z],
+    0.0025,
+  );
+  buildWheel(
+    tyres,
+    BLENDER_TAILWHEEL_X,
+    0,
+    BLENDER_TAILWHEEL_Z,
+    BLENDER_TAILWHEEL_RADIUS,
+    0.008,
+  );
+}
+
+/**
+ * The camera, up on the decking between the wings.
+ *
+ * There is nowhere else it can go. A biplane's cockpit looks straight into the
+ * underside of the top wing, so the camera sits on the turtle deck just behind
+ * the pod with the top wing's leading edge above it and the lower wing filling
+ * the bottom of the frame — which is the view out of one of these, and the
+ * reason a pilot flying a biplane in FPV learns to look through the gap.
+ */
+function buildBlenderCockpit(body: PartBuilder, lens: PartBuilder): void {
+  const x0 = 0.008;
+  const x1 = 0.048;
+  const zBottom = 0.036;
+  const zTop = 0.062;
+  const side: Point[] = [
+    [x0, 0, zBottom],
+    [x1, 0, zBottom],
+    [x1, 0, zTop],
+    [x0, 0, zTop],
+  ];
+  body.plate(side, 0.03, 1);
+  const glass: Point[] = [
+    [x1 + 0.002, -0.011, zBottom + 0.005],
+    [x1 + 0.007, -0.011, zTop - 0.005],
+    [x1 + 0.007, 0.011, zTop - 0.005],
+    [x1 + 0.002, 0.011, zBottom + 0.005],
+  ];
+  lens.plate(glass, 0.004, 0);
+}
+
+/** The propeller, in its own frame with the hub at zero. */
+function buildBlenderPropeller(prop: PartBuilder, spinner: PartBuilder): void {
+  const radius = BLENDER_PROP_RADIUS;
+  // Two thin plastic blades. A 10x4.5 is a slow-pitch propeller and it looks
+  // like one: broad at mid-span, and very little twist to show at this size.
+  const blade = (direction: 1 | -1): Point[] => {
+    const points: Point[] = [
+      [0, 0.011, 0.016 * direction],
+      [0, 0.019, 0.06 * direction],
+      [0, 0.011, radius * direction],
+      [0, -0.009, radius * 0.94 * direction],
+      [0, -0.016, 0.055 * direction],
+      [0, -0.01, 0.015 * direction],
+    ];
+    return direction === 1 ? points : points.slice().reverse();
+  };
+  prop.plate(blade(1), 0.004, 0);
+  prop.plate(blade(-1), 0.004, 0);
+
+  const segments = 10;
+  const hubRadius = 0.013;
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    spinner.triangle(
+      [0.022, 0, 0],
+      [0, Math.cos(a0) * hubRadius, Math.sin(a0) * hubRadius],
+      [0, Math.cos(a1) * hubRadius, Math.sin(a1) * hubRadius],
+    );
+    spinner.triangle(
+      [0, 0, 0],
+      [0, Math.cos(a1) * hubRadius, Math.sin(a1) * hubRadius],
+      [0, Math.cos(a0) * hubRadius, Math.sin(a0) * hubRadius],
+    );
+  }
+}
+
+let cachedBabyBlender: AircraftMesh | null = null;
+
+/** Builds (once) and returns the FT Baby Blender mesh. */
+export function buildBabyBlenderMesh(): AircraftMesh {
+  if (cachedBabyBlender) return cachedBabyBlender;
+
+  const top = new PartBuilder("blender-top", BLENDER_SHELL_TOP, PAINT.Shell);
+  const bottom = new PartBuilder(
+    "blender-bottom",
+    BLENDER_SHELL_BOTTOM,
+    PAINT.Shell,
+    BLENDER_BOTTOM_SHADE,
+  );
+  const body = new PartBuilder(
+    "blender-body",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+    BLENDER_BODY_SHADE,
+  );
+  const tail = new PartBuilder(
+    "blender-tail",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+    BLENDER_TAIL_SHADE,
+  );
+  const pod = new PartBuilder("blender-pod", BLENDER_TRIM, PAINT.Accent);
+  const struts = new PartBuilder("blender-struts", BLENDER_TRIM, PAINT.Accent);
+  const firewall = new PartBuilder("blender-firewall", MOTOR);
+  const legs = new PartBuilder("blender-gear", MOTOR);
+  const tyres = new PartBuilder("blender-tyres", BLENDER_TYRE);
+  const lens = new PartBuilder("blender-lens", LENS);
+  const propeller = new PartBuilder("blender-propeller", MOTOR);
+  const spinner = new PartBuilder("blender-spinner", BLENDER_TRIM, PAINT.Accent);
+  const aileronLeft = new PartBuilder(
+    "blender-aileron-left",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronRight = new PartBuilder(
+    "blender-aileron-right",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronUnderLeft = new PartBuilder(
+    "blender-aileron-left-bottom",
+    BLENDER_SHELL_BOTTOM,
+    PAINT.Shell,
+    BLENDER_BOTTOM_SHADE,
+  );
+  const aileronUnderRight = new PartBuilder(
+    "blender-aileron-right-bottom",
+    BLENDER_SHELL_BOTTOM,
+    PAINT.Shell,
+    BLENDER_BOTTOM_SHADE,
+  );
+  const elevatorLeft = new PartBuilder(
+    "blender-elevator-left",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+    BLENDER_TAIL_SHADE,
+  );
+  const elevatorRight = new PartBuilder(
+    "blender-elevator-right",
+    BLENDER_SHELL_TOP,
+    PAINT.Shell,
+    BLENDER_TAIL_SHADE,
+  );
+
+  buildWing(BLENDER_TOP_PLANFORM, top, bottom);
+  buildWing(BLENDER_LOWER_PLANFORM, top, bottom);
+  buildElevon(BLENDER_TOP_PLANFORM, aileronLeft, 1, aileronUnderLeft);
+  buildElevon(BLENDER_TOP_PLANFORM, aileronRight, -1, aileronUnderRight);
+  buildBlenderBody(body);
+  buildBlenderPod(pod, firewall);
+  buildBlenderStruts(struts);
+  buildBlenderTail(tail);
+  buildBlenderElevator(elevatorLeft, 1);
+  buildBlenderElevator(elevatorRight, -1);
+  buildBlenderGear(legs, tyres);
+  buildBlenderCockpit(body, lens);
+  buildBlenderPropeller(propeller, spinner);
+
+  // The ailerons are drawn where they sit and stay there: the hinge line is
+  // visible in the top wing, and the surface the pilot watches move is the
+  // elevator, as on every other aeroplane here with a tail.
+  const ailerons = [
+    aileronLeft.build(),
+    aileronUnderLeft.build(),
+    aileronRight.build(),
+    aileronUnderRight.build(),
+  ]
+    .filter((part): part is MeshPart => part !== null)
+    .map((part) => translated(part, BLENDER_HINGE_X, 0, BLENDER_HINGE_Z));
+  const parts = [
+    ...[top, bottom, body, tail, pod, struts, firewall, legs, tyres, lens]
+      .map((builder) => builder.build())
+      .filter((part): part is MeshPart => part !== null),
+    ...ailerons,
+  ];
+
+  const propellerParts = [propeller.build(), spinner.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const propellers: PropellerGroup[] = [
+    {
+      name: "blender-propeller",
+      origin: [BLENDER_PROP_X, 0, BLENDER_PROP_AXIS_Z],
+      axis: "x",
+      direction: 1,
+      parts: propellerParts,
+    },
+  ];
+
+  const leftParts = [elevatorLeft.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const rightParts = [elevatorRight.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const staticParts = [
+    ...parts,
+    ...[...leftParts, ...rightParts].map((part) =>
+      translated(part, BLENDER_ELEVATOR_HINGE_X, 0, BLENDER_TAIL_Z),
+    ),
+  ];
+
+  const triangleCount =
+    [...parts, ...propellerParts, ...leftParts, ...rightParts].reduce(
+      (sum, part) => sum + part.indices.length,
+      0,
+    ) / 3;
+
+  cachedBabyBlender = {
+    kind: MESH_KIND.Biplane,
+    referenceSpan: MESH_BABY_BLENDER_SPAN,
+    parts,
+    propellers,
+    elevonParts: { left: leftParts, right: rightParts },
+    elevonOrigin: [BLENDER_ELEVATOR_HINGE_X, 0, BLENDER_TAIL_Z],
+    staticParts,
+    // On the decking between the wings, tilted up rather more than most: a
+    // biplane's lower wing fills the bottom of the frame whatever you do, so
+    // the camera is aimed through the gap and over the top wing's leading edge.
+    fpvCamera: { offset: [0.052, 0, 0.052], tiltDegrees: 12 },
+    triangleCount,
+  };
+  return cachedBabyBlender;
+}
+
 /** The geometry for one kind of airframe. */
 export function meshOfKind(kind: MeshKind): AircraftMesh {
   if (kind === MESH_KIND.Quad) return buildQuadMesh();
@@ -3410,6 +5371,9 @@ export function meshOfKind(kind: MeshKind): AircraftMesh {
   if (kind === MESH_KIND.X8) return buildX8Mesh();
   if (kind === MESH_KIND.Rocket) return buildRocketMesh();
   if (kind === MESH_KIND.Skyeye) return buildSkyeyeMesh();
+  if (kind === MESH_KIND.Triplane) return buildTriplaneMesh();
+  if (kind === MESH_KIND.P38) return buildP38Mesh();
+  if (kind === MESH_KIND.Biplane) return buildBabyBlenderMesh();
   return buildAircraftMesh();
 }
 
@@ -3429,6 +5393,9 @@ export function meshKindFor(config: AircraftConfig): MeshKind {
   if (config.rotor) return MESH_KIND.Quad;
   if (config.shape === "glider") return MESH_KIND.Glider;
   if (config.shape === "skyeye") return MESH_KIND.Skyeye;
+  if (config.shape === "triplane") return MESH_KIND.Triplane;
+  if (config.shape === "p38") return MESH_KIND.P38;
+  if (config.shape === "biplane") return MESH_KIND.Biplane;
   return config.shape === "x8" ? MESH_KIND.X8 : MESH_KIND.Wing;
 }
 

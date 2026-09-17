@@ -38,6 +38,9 @@ import { runMultirotorTests } from "./multirotor.test";
 import { runGliderTests } from "./glider.test";
 import { runRocketTests } from "./rocket.test";
 import { runSkyeyeTests } from "./skyeye.test";
+import { runTriplaneTests } from "./triplane.test";
+import { runP38Tests } from "./p38.test";
+import { runBabyBlenderTests } from "./babyBlender.test";
 
 async function main(): Promise<void> {
   runMathTests();
@@ -81,6 +84,9 @@ async function main(): Promise<void> {
   runGliderTests();
   runRocketTests();
   runSkyeyeTests();
+  runTriplaneTests();
+  runP38Tests();
+  runBabyBlenderTests();
   report();
 }
 

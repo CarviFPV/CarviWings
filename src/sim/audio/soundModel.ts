@@ -135,6 +135,65 @@ export const ROCKET_ENGINE: EngineProfile = {
 };
 
 /**
+ * The FT Triplane XL, which is the slowest-turning propeller here by a long way.
+ *
+ * A 12-inch two-blader on 3S doing ten and a half thousand at full throttle:
+ * three hundred and fifty hertz, under a foam wing's four hundred and a sixth
+ * of the CA35's scream. It is the only electric aeroplane here that hums rather
+ * than buzzes, because it is the only one turning a propeller a foot across —
+ * and it goes quiet the moment the stick comes down, because a motor that has
+ * stopped is a motor that has stopped, whatever it looks like.
+ */
+export const TRIPLANE_ENGINE: EngineProfile = {
+  idleRpm: 1500,
+  maxRpm: 10400,
+  blades: 2,
+  propPitchSpeed: 19.8,
+};
+
+/**
+ * The FT P-38 Lightning, which is two motors heard as one.
+ *
+ * A pair of nine-inch two-bladers on 4S turning just under fifteen thousand at
+ * full throttle: a shade under five hundred hertz, between the foam delta's
+ * four hundred and the glider's buzz. Two of them, and they are still one tone
+ * — both motors run off the same stick and the same pack, so what a listener
+ * gets is the same note twice as loud rather than the slow throb a full-size
+ * twin makes when its two engines are a few rpm apart. The airframe's own beat
+ * is reserved for damage, and it should stay that way: an aeroplane that
+ * throbs in this simulator has been hit.
+ */
+export const P38_ENGINE: EngineProfile = {
+  idleRpm: 1800,
+  maxRpm: 14800,
+  blades: 2,
+  propPitchSpeed: 28.3,
+};
+
+/**
+ * The FT Baby Blender, which is a triplane's propeller turning rather faster.
+ *
+ * A ten-inch two-blader on 3S doing eleven thousand at full throttle: three
+ * hundred and seventy hertz, a whisker under the foam delta's four hundred and
+ * a shade over the triplane's three fifty. Both of those aeroplanes are Flite
+ * Test foam board with a big slow blade on the front, and they sound like near
+ * relatives because they are — this one is the smaller aeroplane turning the
+ * smaller propeller harder, which comes out at almost the same note.
+ *
+ * What is not the same is what the note *does*. Two and three quarter times its
+ * own weight in thrust on an airframe this light means the throttle is a
+ * control surface: half of what this aeroplane is flown with is the stick going
+ * up and down, so the tone spends its life sweeping rather than sitting where
+ * a cruising wing leaves it.
+ */
+export const BABY_BLENDER_ENGINE: EngineProfile = {
+  idleRpm: 1600,
+  maxRpm: 11100,
+  blades: 2,
+  propPitchSpeed: 21.2,
+};
+
+/**
  * The Skyeye series, which is not a motor at all and does not sound like one.
  *
  * A petrol two-stroke swinging a two-bladed propeller two feet across at seven
@@ -161,6 +220,9 @@ export function engineProfileFor(config: AircraftConfig): EngineProfile {
   if (config.shape === "rocket") return ROCKET_ENGINE;
   if (config.rotor) return QUAD_ENGINE;
   if (config.shape === "skyeye") return PISTON_ENGINE;
+  if (config.shape === "triplane") return TRIPLANE_ENGINE;
+  if (config.shape === "p38") return P38_ENGINE;
+  if (config.shape === "biplane") return BABY_BLENDER_ENGINE;
   return config.shape === "glider" ? GLIDER_ENGINE : WING_ENGINE;
 }
 

@@ -4,7 +4,8 @@ Guidance for Claude Code when working in this repository.
 
 ## Project
 
-CarviWings: a browser FPV interception simulator — three fixed wings, two
+CarviWings: a browser FPV interception simulator — three fixed wings, a
+foam-board triplane, a twin-boom foam warbird, a foam-board biplane, two
 multirotors and the five petrol Skyeye UAVs — flown over the real Earth
 (Cesium terrain/imagery), with from-scratch fixed-wing and multirotor flight
 models, electric and combustion power systems, HUD, environment

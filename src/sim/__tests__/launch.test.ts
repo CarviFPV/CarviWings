@@ -448,8 +448,14 @@ export async function runLaunchTests(): Promise<void> {
           player.status === FLIGHT_STATUS.Flying,
           `${uav.config.name} flies off the runway (${player.status})`,
         );
+        // A run rather than a leap or a cross-country, and the floor is the
+        // aeroplane's own size rather than a distance: a 6 m Skyeye uses four
+        // hundred metres of strip and a foam triplane at a third of its wing
+        // loading is off in a dozen, and both of those are the aeroplane
+        // rolling until its wing will carry it rather than being hauled into
+        // the air from a standstill.
         assert(
-          rolled > 20 && rolled < 600,
+          rolled > uav.config.wingSpan * 4 && rolled < 600,
           `${uav.config.name} needs a runway rather than a step or a mile (${rolled.toFixed(
             0,
           )} m)`,

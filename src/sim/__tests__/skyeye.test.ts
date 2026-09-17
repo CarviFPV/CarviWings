@@ -180,8 +180,8 @@ export function runSkyeyeTests(): void {
         `${config.name} is named for its span in millimetres`,
       );
       assert(
-        config.undercarriage === true,
-        `${config.name} has wheels under it`,
+        config.undercarriage === "tricycle",
+        `${config.name} stands on a nosewheel and two mains`,
       );
       assert(
         isCombustion(deliveredMotor(uav)),

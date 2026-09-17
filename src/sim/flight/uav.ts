@@ -33,6 +33,9 @@ import type { AircraftConfig } from "./config";
 import {
   CA35_160,
   FOAM_GLIDER,
+  FT_BABY_BLENDER,
+  FT_P38_LIGHTNING,
+  FT_TRIPLANE_XL,
   PLAYER_WING,
   SKYEYE_2600,
   SKYEYE_3200,
@@ -424,6 +427,270 @@ const X10_BATTERIES: readonly BatterySpec[] = [
     chemistry: "liion",
   },
   { id: "8s-1100", cells: 8, capacityMah: 1100, cRating: 95, massKg: 0.23 },
+];
+
+/**
+ * Motor, ESC and propeller combinations for the FT Triplane XL.
+ *
+ * One motor and four propellers, which is what a barnstormer's catalogue
+ * actually looks like: the 2814 is the aeroplane's motor and what changes it
+ * from one aircraft into another is the blade in front of it. A triplane tops
+ * out where its propeller runs out of pitch and nowhere near where it runs out
+ * of thrust, so the choice here is not power against economy the way it is on
+ * a wing — it is thrust against speed, and both ends of it are useful.
+ *
+ * The ESC ratings are the one place these do not read straight off the kit.
+ * Flite Test specify a 40 A controller, which is a burst rating covering a
+ * full-throttle static pull rather than a continuous one, and the figure this
+ * simulator quotes against a controller is what the combination asks for
+ * standing still with the stick open. So the delivered setup carries the 60 A
+ * that will actually hold it, and the one combination genuinely inside 40 A —
+ * the big slow 13x4 — says so.
+ */
+const TRIPLANE_MOTORS: readonly MotorSpec[] = [
+  {
+    id: "ft2814-1100-12x4.5",
+    motor: "FT 2814 KV1100",
+    kv: 1100,
+    escAmps: 60,
+    propDiameter: 12,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.093,
+    summary: "60 A · 12×4.5 · 3S — as delivered",
+  },
+  {
+    id: "ft2814-900-13x4",
+    motor: "FT 2814 KV900",
+    kv: 900,
+    escAmps: 40,
+    propDiameter: 13,
+    propPitch: 4,
+    cells: { min: 3, max: 3 },
+    massKg: 0.093,
+    summary: "40 A · 13×4 · 3S — the big slow propeller",
+  },
+  {
+    id: "ft2814-1100-11x5.5",
+    motor: "FT 2814 KV1100",
+    kv: 1100,
+    escAmps: 50,
+    propDiameter: 11,
+    propPitch: 5.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.093,
+    summary: "50 A · 11×5.5 · 3S — less pull, more speed",
+  },
+  {
+    id: "2814-800-12x6-4s",
+    motor: "2814 KV800",
+    kv: 800,
+    escAmps: 60,
+    propDiameter: 12,
+    propPitch: 6,
+    cells: { min: 4, max: 4 },
+    massKg: 0.098,
+    summary: "60 A · 12×6 · 4S — the four-cell conversion",
+  },
+];
+
+/**
+ * Packs that go under a Triplane XL's hatch.
+ *
+ * The 3300 is the kit's own and the aeroplane is balanced around it — the
+ * centre of gravity is 63.5 mm behind the middle wing's leading edge and the
+ * pack is most of what puts it there. The 2200 is eighty grams off an aeroplane
+ * that only weighs 1.76 kg, and it shows: it hangs on the propeller more
+ * willingly, and it is over in eleven minutes rather than seventeen. The 5000
+ * is the other way — a scale flight of twenty-five minutes rather than an
+ * aerobatic one, bought with a fifth again the wing loading on the lightest
+ * thing about this aeroplane. And the two four-cell packs are for the
+ * conversion, which is the same aeroplane going faster.
+ */
+const TRIPLANE_BATTERIES: readonly BatterySpec[] = [
+  { id: "3s-2200", cells: 3, capacityMah: 2200, cRating: 35, massKg: 0.185 },
+  { id: "3s-3300", cells: 3, capacityMah: 3300, cRating: 30, massKg: 0.265 },
+  { id: "3s-5000", cells: 3, capacityMah: 5000, cRating: 25, massKg: 0.39 },
+  { id: "4s-2200", cells: 4, capacityMah: 2200, cRating: 35, massKg: 0.245 },
+  { id: "4s-3300", cells: 4, capacityMah: 3300, cRating: 30, massKg: 0.35 },
+];
+
+/**
+ * Motor, ESC and propeller combinations for the FT P-38 Lightning.
+ *
+ * Everything here is two of it, which is the whole of what makes this airframe
+ * different in a catalogue: `count` multiplies the thrust, the disc the air is
+ * thrown through and the weight, exactly as it does on a quadcopter, and the
+ * `escAmps` quoted is both controllers together because that is what is
+ * actually bolted into the aeroplane.
+ *
+ * The kit's own combination needs a word, because Flite Test's two pages do not
+ * quite agree with each other. The Power Pack C Radial v.2 Twin ships 10×4.5
+ * blades — it is the three-cell pack with a second motor added to it — and the
+ * P-38 asks for a four-cell battery. The motor's own specification says a
+ * ten-inch propeller on three cells *or* a nine-inch one on four, and the
+ * arithmetic in `powerplant.ts` agrees with it rather emphatically: the ten-inch
+ * blade on four cells asks for 105 A standing still, against the 80 A of
+ * controller in the box. So the aeroplane is delivered here the way Flite Test
+ * specify the motor — the same 4.5 pitch, one inch smaller across, on the
+ * kit's 4S — and the blades that come in the box are the combination below it,
+ * flown on the three cells they are meant for.
+ */
+const P38_MOTORS: readonly MotorSpec[] = [
+  {
+    id: "radial2218-1180-9x4.5",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 80,
+    propDiameter: 9,
+    propPitch: 4.5,
+    cells: { min: 4, max: 4 },
+    massKg: 0.115,
+    count: 2,
+    summary: "2 × 40 A · 9×4.5 · 4S — as delivered",
+  },
+  {
+    id: "radial2218-1180-10x4.5",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 80,
+    propDiameter: 10,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.117,
+    count: 2,
+    summary: "2 × 40 A · 10×4.5 · 3S — the blades in the box",
+  },
+  {
+    id: "radial2218-1180-9x6",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 100,
+    propDiameter: 9,
+    propPitch: 6,
+    cells: { min: 4, max: 4 },
+    massKg: 0.12,
+    count: 2,
+    summary: "2 × 50 A · 9×6 · 4S — high pitch speed",
+  },
+  {
+    id: "radial2814-1050-10x5",
+    motor: "FT Radial 2814 KV1050",
+    kv: 1050,
+    escAmps: 120,
+    propDiameter: 10,
+    propPitch: 5,
+    cells: { min: 4, max: 4 },
+    massKg: 0.145,
+    count: 2,
+    summary: "2 × 60 A · 10×5 · 4S — the big-motor conversion",
+  },
+];
+
+/**
+ * Packs that go into a P-38's hatch.
+ *
+ * The 2300 mAh 4S is the kit's, and it is the one the aeroplane is balanced
+ * around: the pack goes into the gondola ahead of the wing and is most of what
+ * puts the centre of gravity 45 mm behind the leading edge. The 3000 is what
+ * the shops list against the airframe instead and is worth four more minutes
+ * for eighty grams; the 4000 is a cruise rather than a sortie. The two
+ * three-cell packs are for the blades in the box, which is a slower and
+ * noticeably longer-legged aeroplane.
+ */
+const P38_BATTERIES: readonly BatterySpec[] = [
+  { id: "3s-2200", cells: 3, capacityMah: 2200, cRating: 35, massKg: 0.19 },
+  { id: "3s-3300", cells: 3, capacityMah: 3300, cRating: 30, massKg: 0.27 },
+  { id: "4s-2300", cells: 4, capacityMah: 2300, cRating: 35, massKg: 0.27 },
+  { id: "4s-3000", cells: 4, capacityMah: 3000, cRating: 35, massKg: 0.35 },
+  { id: "4s-4000", cells: 4, capacityMah: 4000, cRating: 30, massKg: 0.44 },
+];
+
+
+/**
+ * Motor, ESC and propeller combinations for the FT Baby Blender.
+ *
+ * The kit calls for Power Pack C and that is the first of these: the FT Radial
+ * 2218 KV1180, a 40 A controller and the HQ 10x4.5 that comes in the box, on
+ * the three cells the aeroplane is sold to fly on. It is a lot of motor for a
+ * 397 g airframe — that combination pulls nearly three times the aeroplane's
+ * weight — and it is what makes a foam biplane do the things on the listing.
+ *
+ * The second is the same motor on the blade its own specification asks for,
+ * the 10x4.7, which is a hair more of everything. The third is Power Pack B,
+ * one size down: the Radial 2212B on a nine-inch blade is barely half the
+ * thrust and it turns the aeroplane back into the gentle four-channel trainer
+ * the description starts by describing. And the fourth is four cells on the
+ * nine-inch blade the 2218 is specified for above three — the conversion, and
+ * the only way this airframe goes anywhere quickly, because what limits it on
+ * the kit's setup is not power but a big slow propeller.
+ */
+const BABY_BLENDER_MOTORS: readonly MotorSpec[] = [
+  {
+    id: "radial2218-1180-10x4.5",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 40,
+    propDiameter: 10,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.117,
+    summary: "40 A · 10×4.5 · 3S — Power Pack C, as delivered",
+  },
+  {
+    id: "radial2218-1180-10x4.7",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 40,
+    propDiameter: 10,
+    propPitch: 4.7,
+    cells: { min: 3, max: 3 },
+    massKg: 0.117,
+    summary: "40 A · 10×4.7 · 3S — the blade the motor is specified for",
+  },
+  {
+    id: "radial2212-1050-9x4.5",
+    motor: "FT Radial 2212B KV1050",
+    kv: 1050,
+    escAmps: 25,
+    propDiameter: 9,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.088,
+    summary: "25 A · 9×4.5 · 3S — Power Pack B, and half the thrust",
+  },
+  {
+    id: "radial2218-1180-9x4.5-4s",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 40,
+    propDiameter: 9,
+    propPitch: 4.5,
+    cells: { min: 4, max: 4 },
+    massKg: 0.118,
+    summary: "40 A · 9×4.5 · 4S — the four-cell conversion",
+  },
+];
+
+/**
+ * Packs that go under a Baby Blender's hatch.
+ *
+ * The kit asks for a three-cell pack between 1300 and 2200 mAh and the store
+ * sells it with an 1800, which is the one the aeroplane is balanced around:
+ * the pack goes into the power pod ahead of the wing and is most of what puts
+ * the centre of gravity 80 mm behind the top wing's leading edge. The 1300 is
+ * thirty-five grams off an aeroplane that only weighs 567, and it shows —
+ * it hangs on the propeller more willingly and it is over sooner. The 2200 is
+ * the other end of the same range. The two four-cell packs are for the
+ * conversion, and there is no larger one here on purpose: this is a 610 mm
+ * aeroplane, and the pod will not take one.
+ */
+const BABY_BLENDER_BATTERIES: readonly BatterySpec[] = [
+  { id: "3s-1300", cells: 3, capacityMah: 1300, cRating: 45, massKg: 0.115 },
+  { id: "3s-1800", cells: 3, capacityMah: 1800, cRating: 45, massKg: 0.15 },
+  { id: "3s-2200", cells: 3, capacityMah: 2200, cRating: 35, massKg: 0.185 },
+  { id: "4s-1300", cells: 4, capacityMah: 1300, cRating: 45, massKg: 0.15 },
+  { id: "4s-1800", cells: 4, capacityMah: 1800, cRating: 45, massKg: 0.2 },
 ];
 
 /**
@@ -997,6 +1264,178 @@ export const X10_INTERCEPTOR_UAV: Uav = {
 };
 
 /**
+ * The FT Triplane XL: the aeroplane in the hangar that is not a UAV.
+ *
+ * Everything else here was designed to do a job — survey a field, race a gate,
+ * intercept something, carry a camera for four hours. This was designed to be
+ * flown, and it is a hundred and ten years old: Flite Test's Fokker Dr.I in
+ * foam board, three wings on struts, a skid on the back, and a repertoire that
+ * stops at the loop, the roll, the hammerhead and the spin because that is
+ * what there was in 1917.
+ *
+ * It is also the slowest and the most heavily winged thing in the simulator.
+ * Fifty-six kilometres an hour flat out is well under two thirds of what the
+ * 141 g foam glider will do and a sixth of the X10; it stalls at twenty-four,
+ * which is a brisk walk; and it will not be flown anywhere in a hurry. What it
+ * does instead is fly at all in places nothing else here can — it is off the
+ * ground in a dozen metres and down again in as few, and on the lightest wing
+ * loading in the hangar a gust is something to be enjoyed rather than
+ * survived.
+ *
+ * The other thing that is new is the undercarriage. There are aeroplanes here
+ * on wheels already, but a Skyeye is a tricycle and this is a taildragger: it
+ * sits back on its skid with the wing at twelve degrees, which is nearly all
+ * the incidence it has. So it does not rotate off a runway — it reaches the
+ * speed at which it is already flying and goes, and the elevator's job on the
+ * ground is to hold the tail down rather than to lift the nose.
+ */
+export const FT_TRIPLANE_XL_UAV: Uav = {
+  id: "ft-triplane-xl",
+  summary: "1.23 m foam triplane, 1.76 kg, 56 km/h, and it lands anywhere",
+  config: FT_TRIPLANE_XL,
+  // The kit at its published 1429 g without a pack, less the motor, plus the
+  // pan-and-tilt FPV mount, camera and video transmitter that make it one of
+  // these rather than a line-of-sight aeroplane. The motor and the pack are
+  // added back by whatever is fitted.
+  dryMassKg: 1.4,
+  // A scale roll rate, and it is the airframe's rather than a preference:
+  // ailerons on one wing out of three, on a span shorter than the
+  // interceptor's, will not produce more. Pitch is the other half of the
+  // aeroplane and gets rather more of the stick, because a triplane loops in
+  // its own length.
+  defaultRates: {
+    rollRate: 140,
+    pitchRate: 85,
+    rollExpo: 0.3,
+    pitchExpo: 0.3,
+  },
+  // Red, with a linen cowl and struts. Flite Test sell it as the Red Baron
+  // flying again and there is no second scheme anybody builds one in.
+  defaultLivery: { shell: "#a8161d", accent: "#e6dcc3" },
+  motors: TRIPLANE_MOTORS,
+  batteries: TRIPLANE_BATTERIES,
+  defaultMotorId: "ft2814-1100-12x4.5",
+  defaultBatteryId: "3s-3300",
+};
+
+/**
+ * The FT P-38 Lightning: the first aeroplane here with two of anything.
+ *
+ * Flite Test's Master Series P-38 in water-resistant foam board, 57.5 inches
+ * across, and the only twin in the hangar. Everything else here has one motor
+ * or four of them arranged in a circle; this has two, a fifth of the span out
+ * on either side, turning opposite ways because the kit ships opposite-handed
+ * blades and because that is what a Lightning does.
+ *
+ * It is the conventional aeroplane the hangar did not have. The interceptor and
+ * the X8 are wings, the Dr.I is a barnstormer, the Skyeyes are working UAVs,
+ * and this is a fighter: a taper-winged aeroplane on a warbird's loading, with
+ * a tail on each of two booms, that is flown at a speed and turned rather than
+ * parked at an attitude. Twenty-one ounces to the square foot is two and a half
+ * times the triplane's, so it stalls at 34 km/h where that one stalls at 24,
+ * and it wants a circuit flown round it.
+ *
+ * What the booms are worth is the way it tracks. Two fins on half a metre of
+ * arm each give it the strongest weathervane in the hangar and the heaviest
+ * damping in pitch, so it holds a line through rough air the way nothing else
+ * here does — and it pays for it in roll, which is modest on purpose. The real
+ * one had the same complaint until somebody fitted hydraulic ailerons to it.
+ */
+export const FT_P38_LIGHTNING_UAV: Uav = {
+  id: "ft-p38-lightning",
+  summary: "1.46 m foam twin, 1.75 kg, 89 km/h, and two of everything",
+  config: FT_P38_LIGHTNING,
+  // The airframe without its motors or a pack: the board and plywood in the
+  // kit, the four nine-gram servos and the 30 cm extensions the booms need, a
+  // receiver, and the pan-and-tilt camera and video transmitter that make it
+  // one of these rather than a line-of-sight warbird. Flite Test do not publish
+  // a weight for this airframe, so it is built up from what goes into one. The
+  // motors, their controllers and the pack are added back by whatever is
+  // fitted.
+  dryMassKg: 1.25,
+  // A warbird's rates rather than a wing's. Roll is what the airframe will
+  // actually give — outboard ailerons on a 1.46 m span, and they are the one
+  // thing a P-38 was ever criticised for — and pitch is where the aeroplane
+  // is: two long booms damp it, so the stick can be given rather more of it
+  // without the aircraft feeling nervous.
+  defaultRates: {
+    rollRate: 190,
+    pitchRate: 95,
+    rollExpo: 0.2,
+    pitchExpo: 0.25,
+  },
+  // Olive drab over the identification bands the Eighth Air Force painted on
+  // their booms and tails, which is the scheme the kit is built in and the one
+  // that makes a twin-boom aeroplane readable end-on.
+  defaultLivery: { shell: "#4d5340", accent: "#e8e4d6" },
+  motors: P38_MOTORS,
+  batteries: P38_BATTERIES,
+  defaultMotorId: "radial2218-1180-9x4.5",
+  defaultBatteryId: "4s-2300",
+};
+
+
+/**
+ * The FT Baby Blender: the smallest aeroplane here, and the most over-powered.
+ *
+ * Flite Test's four-channel biplane, 610 mm across and 567 g, and the fourth
+ * aeroplane in the Swappable Series — which means the whole nose of it slides
+ * out: the motor, the controller and the pack live in a foam board pod that is
+ * shared with every other swappable Flite Test have drawn, and the airframe is
+ * what is left when you pull it.
+ *
+ * It is the aeroplane the hangar had nothing like. The wings and the UAVs are
+ * flown somewhere; the triplane is flown slowly; this is flown *at* something,
+ * and then flown out of it upside down. Nine and a half ounces to the square
+ * foot means it stalls at 27 km/h and a 10x4.5 on three cells means it will
+ * not do much over 64, so the whole of the envelope fits inside a park — and
+ * inside that envelope it has two and three quarter times its own weight in
+ * thrust, which is more than anything else in the simulator that is not a
+ * multirotor. What that buys is the vertical: it goes up until the pilot stops
+ * asking, and it will hang on the propeller at an attitude the flying wings
+ * fall out of.
+ *
+ * The second thing it is, is the first biplane. Two wings a 99 mm gap apart
+ * are not one wing of twice the area — the pair interfere, and interfering is
+ * the point: they shed a quarter less vortex between them than a single wing
+ * carrying the same lift on the same span would, which is the entire reason
+ * anybody stacked wings. What it costs is a cell of aspect ratio 1.9, the
+ * stubbiest shape here, and a top speed that a 141 g toy glider beats.
+ */
+export const FT_BABY_BLENDER_UAV: Uav = {
+  id: "ft-baby-blender",
+  summary: "0.61 m foam biplane, 567 g, 64 km/h, and it goes straight up",
+  config: FT_BABY_BLENDER,
+  // The kit at its published 14 oz without a pack, less the motor, controller
+  // and blade, plus the micro camera and video transmitter that make it one of
+  // these rather than a line-of-sight park aeroplane. Twenty grams of FPV gear
+  // is a lot on an airframe this size and it is deliberately the lightest
+  // installation in the hangar. The power pod's contents and the pack are
+  // added back by whatever is fitted.
+  dryMassKg: 0.3,
+  // Aerobatic rates, and the kit's own expo: Flite Test set one of these up
+  // with 30% on both sticks. The rates themselves are the kit's two throws put
+  // where a transmitter setting belongs — the airframe's coefficients carry the
+  // full thirty degrees, and these ask for about what the low rate would give
+  // in roll and rather more than it in pitch, because a biplane that loops in
+  // its own length wants the elevator.
+  defaultRates: {
+    rollRate: 360,
+    pitchRate: 160,
+    rollExpo: 0.3,
+    pitchExpo: 0.3,
+  },
+  // Bare white water-resistant board with a red cowl and struts, which is how
+  // the kit photographs and roughly what every one of them ends up as once the
+  // decal sheet is on.
+  defaultLivery: { shell: "#eceae4", accent: "#c8322c" },
+  motors: BABY_BLENDER_MOTORS,
+  batteries: BABY_BLENDER_BATTERIES,
+  defaultMotorId: "radial2218-1180-10x4.5",
+  defaultBatteryId: "3s-1800",
+};
+
+/**
  * The Skyeye series: five aeroplanes, and the only ones here with engines.
  *
  * They are one entry each rather than one entry with a size on it, because the
@@ -1168,6 +1607,9 @@ export const UAVS: readonly Uav[] = [
   INTERCEPTOR_WING,
   SKYWALKER_X8_UAV,
   FOAM_GLIDER_UAV,
+  FT_TRIPLANE_XL_UAV,
+  FT_P38_LIGHTNING_UAV,
+  FT_BABY_BLENDER_UAV,
   CA35_160_UAV,
   X10_INTERCEPTOR_UAV,
   SKYEYE_2600_UAV,

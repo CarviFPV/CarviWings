@@ -18,6 +18,7 @@ import { AircraftRenderer } from "./aircraftRenderer";
 import { CameraRig, CAMERA_MODE, DEFAULT_CAMERA_SETTINGS } from "./cameraRig";
 import type { CameraMode, CameraSettings } from "./cameraRig";
 import {
+  createDrawnSurfaceProbe,
   createGlobeSurfaceReader,
   createScenePicker,
   createSurfaceProbe,
@@ -26,6 +27,7 @@ import {
 } from "./terrainProbe";
 import type { GraphicsQuality, LoadStage } from "./viewer";
 import { createFlightViewer } from "./viewer";
+import { ViewDetail } from "./viewDetail";
 import type { Scenery, WorldDetail } from "./scenery";
 import { WORLD_DETAIL, waitForSceneryStreamed } from "./scenery";
 import { EnvironmentController } from "./environment";
@@ -89,6 +91,8 @@ import {
   standingSurface,
 } from "@/sim/terrain/footing";
 import { SurfaceCalibration } from "@/sim/terrain/surfaceCalibration";
+import { SurfaceSettling } from "@/sim/terrain/settling";
+import type { SurfaceReadings } from "@/sim/terrain/settling";
 import type {
   MissionClock,
   TimeOfDay,
@@ -610,8 +614,6 @@ const STAND_SURFACE_SAMPLES: readonly (readonly [number, number])[] = (() => {
   }
   return samples;
 })();
-/** How often the launch area is re-measured while a ground view is up, s. */
-const LAUNCH_SURFACE_INTERVAL = 1;
 /** Above this height above ground the surface offset does not matter, metres. */
 const SURFACE_PICK_CEILING = 400;
 /** Give up waiting for tiles after this long and fly anyway. */
@@ -890,6 +892,18 @@ export class FlightSession {
    */
   private readonly probeSurface: TerrainBatchProbe;
   /**
+   * The drawn surface under a batch of columns, as it stands this moment.
+   *
+   * The same reading as `probeSurface` without the demand behind it: it takes
+   * the scene as it is rather than holding a most-detailed pick open per column
+   * until every tileset has streamed the deepest tile it owns there. That is
+   * what a re-measurement wants — what has arrived, not what could be made to —
+   * and it is the difference between a ground view that streams the grass under
+   * the pilot's feet all flight and one that does not. See
+   * `createDrawnSurfaceProbe`.
+   */
+  private readonly observeSurface: TerrainBatchProbe;
+  /**
    * The globe mesh as it is currently drawn, under one column.
    *
    * Free and synchronous, unlike the pick above, and used for one thing: the
@@ -907,7 +921,14 @@ export class FlightSession {
   private launchSurface: number | null = null;
   /** The same, where the pilot is standing. They are metres apart. */
   private pilotSurface: number | null = null;
-  private launchSurfaceTimer = 0;
+  /**
+   * How long the launch area goes on being re-measured, and when it stops.
+   *
+   * Nobody on a field moves, so this is a settling process rather than a poll:
+   * see `sim/terrain/settling.ts` for why measuring it forever is the most
+   * expensive way to learn nothing.
+   */
+  private readonly launchSettling = new SurfaceSettling();
   private launchSurfacePending = false;
   private surfacePickTimer = 0;
   private surfacePickPending = false;
@@ -1071,6 +1092,12 @@ export class FlightSession {
       notScenery,
     );
     this.probeSurface = createSurfaceProbe(
+      args.cesium,
+      args.viewer.scene,
+      args.frame,
+      notScenery,
+    );
+    this.observeSurface = createDrawnSurfaceProbe(
       args.cesium,
       args.viewer.scene,
       args.frame,
@@ -1386,6 +1413,11 @@ export class FlightSession {
       ...DEFAULT_CAMERA_SETTINGS,
       ...(config.cameraSettings ?? {}),
     });
+    // What the quality preset asked for, and what a zoom is allowed to do to
+    // it. Built after the viewer and the scenery, because it reads the preset
+    // back off both rather than keeping a second copy of it. See
+    // `viewDetail.ts`; only the ground view's eye ever moves it.
+    cameraRig.setDetail(new ViewDetail(viewer.scene, scenery.tilesets));
 
     const session = new FlightSession({
       cesium,
@@ -1546,15 +1578,27 @@ export class FlightSession {
    * Every world detail, not just photogrammetry. Only the *bias* below is
    * photogrammetry's business: that moves the ground the flight is flown
    * against, and everywhere else the globe already is the height field.
+   *
+   * Which probe does the picking is the caller's decision and a real one. The
+   * round taken under the loading screen asks for the deepest detail the scene
+   * can be made to reach, because it is establishing what the launch area *is*
+   * and there are no frames to spend. Every round after it observes what has
+   * arrived instead — `createDrawnSurfaceProbe` — because that is the question
+   * a re-measurement is asking, and asking the other one costs the flight.
+   *
+   * Returns what each stand read, in the order the stands are measured in, or
+   * null when the round did not run.
    */
-  private async measureLaunchSurface(): Promise<void> {
-    if (this.launchSurfacePending) return;
+  private async measureLaunchSurface(
+    probe: TerrainBatchProbe,
+  ): Promise<SurfaceReadings | null> {
+    if (this.launchSurfacePending) return null;
     this.launchSurfacePending = true;
     try {
-      // Both stands in one batch, which is one render pass: the launch point,
-      // where somebody is holding the wing, and the few metres behind it where
-      // the pilot is standing. They are measured apart because they are apart —
-      // one can be in a clearing and the other under the trees.
+      // Both stands in one round: the launch point, where somebody is holding
+      // the wing, and the few metres behind it where the pilot is standing.
+      // They are measured apart because they are apart — one can be in a
+      // clearing and the other under the trees.
       const [px, py] = this.pilotColumn();
       const stands: readonly (readonly [number, number])[] = [
         [0, 0],
@@ -1563,8 +1607,8 @@ export class FlightSession {
       const points = stands.flatMap(([sx, sy]) =>
         STAND_SURFACE_SAMPLES.map(([dx, dy]) => ({ x: sx + dx, y: sy + dy })),
       );
-      const picks = await this.probeSurface(points);
-      if (this.disposed) return;
+      const picks = await probe(points);
+      if (this.disposed) return null;
 
       // Corroborated rather than simply the highest: an unsettled height sample
       // comes back finite and absurd, and the highest reading of a batch is the
@@ -1585,6 +1629,7 @@ export class FlightSession {
         this.simulation.setLaunchSurface(launch);
       }
       if (pilot !== null) this.pilotSurface = pilot;
+      return [launch, pilot];
     } finally {
       this.launchSurfacePending = false;
     }
@@ -1624,7 +1669,12 @@ export class FlightSession {
    * `measureLaunchSurface`, which is not clamped to anything of the sort.
    */
   private async levelLaunchSurface(): Promise<void> {
-    await this.measureLaunchSurface();
+    // The one round that is entitled to force the tiles: it is establishing
+    // what the launch area is made of, under a loading screen, with no frames
+    // to spend. Everything measured here is what the flight compares against,
+    // so the settling is told about it rather than starting from nothing.
+    const readings = await this.measureLaunchSurface(this.probeSurface);
+    if (readings) this.launchSettling.prime(readings);
     const calibration = this.surfaceCalibration;
     if (!calibration) return;
     const drawn = await this.pickSurface(0, 0);
@@ -2752,6 +2802,11 @@ export class FlightSession {
    * launched the same way the first one was.
    */
   resetPlayer(): void {
+    // A replacement airframe goes back into the launcher's hand, and the
+    // ground under a held wing is what holds it at head height rather than in
+    // the hillside. Worth a couple of rounds to be sure of again, however
+    // settled the question was when the last one left.
+    this.launchSettling.disturb();
     const player = this.simulation.player;
     if (!player) {
       this.spawnPlayer();
@@ -2924,18 +2979,35 @@ export class FlightSession {
   }
 
   /**
-   * Re-measures the launch area while a ground view is up.
+   * Re-measures the launch area until it stops changing.
    *
-   * One batched pick is one render pass, and a second apart it is nothing
-   * against a frame — worth paying for the whole flight, because it is what
-   * keeps the pilot standing on the canopy rather than under the version of it
-   * that had arrived when the loading screen went.
+   * What this is for has not changed: a canopy resolves as its tiles do, and a
+   * pilot left at the height the loading screen went on is standing under the
+   * version of the wood that had arrived by then. What has changed is that it
+   * stops. Nobody on a field moves — the stand and the launch point are the two
+   * fixed things in the whole simulator — so once consecutive rounds return the
+   * same surface there is nothing left to find, and going on asking is the most
+   * expensive thing in the frame. See `sim/terrain/settling.ts`.
+   *
+   * Not asked at all where the globe is the only surface there is. The height
+   * field *is* the globe on terrain-only scenery, `readGlobeSurface` follows it
+   * as it refines for free, every frame, and a pick can only agree with what
+   * the free reading already said.
    */
   private refreshLaunchSurface(dt: number): void {
-    this.launchSurfaceTimer += dt;
-    if (this.launchSurfaceTimer < LAUNCH_SURFACE_INTERVAL) return;
-    this.launchSurfaceTimer = 0;
-    void this.measureLaunchSurface();
+    if (this.scenery.tilesets.length === 0) return;
+    if (!this.launchSettling.begin(dt)) return;
+    void this.settleLaunchSurface();
+  }
+
+  /** One round of the above, reported back to the settling that asked for it. */
+  private async settleLaunchSurface(): Promise<void> {
+    const readings = await this.measureLaunchSurface(this.observeSurface);
+    if (this.disposed) return;
+    // A round that never ran — one was already out — is not evidence of
+    // anything, so it neither settles the question nor unsettles it.
+    if (readings === null) this.launchSettling.abandon();
+    else this.launchSettling.finish(readings);
   }
 
   /**

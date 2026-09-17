@@ -198,7 +198,14 @@ export async function runOppositionTests(): Promise<void> {
       "and the deal repeats rather than running out on a bigger field",
     );
 
-    const again = dealt({ mode: OPPOSITION_MODE.All, aircraft: [] }, seed, 12);
+    // A field longer than the hangar, so the assertion below is that the first
+    // pass through it is the same deal in the same order however many contacts
+    // are asked for — which stays true as aircraft are added to the hangar.
+    const again = dealt(
+      { mode: OPPOSITION_MODE.All, aircraft: [] },
+      seed,
+      UAVS.length + 4,
+    );
     assert(
       again.slice(0, UAVS.length).join() === everything.join(),
       "the same mission always puts the same aircraft in the same places",

@@ -30,6 +30,13 @@
  * constraint with a tenth of the friction, which is the whole reason one can be
  * accelerated to flying speed under its own power and a foam wing cannot.
  *
+ * Which way up that undercarriage is decides one more thing, and it is the one
+ * a pilot notices first. A nosewheel holds the wing level and the elevator has
+ * to rotate it up to flying incidence; a taildragger has already put it there
+ * and leaves the ground without being asked to. So the band of attitudes the
+ * surface allows an aeroplane is not centred on the same end of itself for
+ * both, and `pushRange` is what says so.
+ *
  * Everything after touchdown is `stepGroundContact`, which is a constraint
  * rather than a scripted animation: the aerodynamic model keeps running
  * underneath it — throttle, elevons, drag and lift all still apply — and this
@@ -110,8 +117,24 @@ export interface GroundContactOptions {
   readonly friction: number;
   /** Pitch the airframe rests at relative to the surface, radians. */
   readonly restPitch: number;
-  /** How far elevator can rotate that resting pitch, radians. */
+  /** How far elevator can rotate that resting pitch nose-up, radians. */
   readonly rotateRange: number;
+  /**
+   * How far forward stick can push it the other way, radians. Left out, the
+   * same as `rotateRange`.
+   *
+   * The two are the same on everything the ground holds roughly level, which
+   * is why one number does for them: a belly, a set of arms or a nosewheel all
+   * sit at the bottom of the band the elevator moves the aeroplane through, and
+   * pushing only presses them harder into the ground.
+   *
+   * They are not the same on a taildragger, and this is the whole of what a
+   * taildragger is. That one sits at the *top* of the band — back on its skid,
+   * wing already at most of the incidence it has — so the elevator has nothing
+   * left to pull it up to and everything to push it down from. Which is why one
+   * is rotated off a runway and the other simply leaves it.
+   */
+  readonly pushRange?: number;
   /** Time constant for the airframe settling flat onto the surface, seconds. */
   readonly settleSeconds: number;
   /** Ground speed below which the aircraft counts as stopped, m/s. */
@@ -234,7 +257,8 @@ export const WHEELED_TOUCHDOWN_LIMITS: TouchdownLimits = {
 };
 
 /**
- * How an aeroplane with an undercarriage sits, rolls and leaves the ground.
+ * How an aeroplane on a tricycle undercarriage sits, rolls and leaves the
+ * ground.
  *
  * Worked out from the airframe rather than written down, because the aircraft
  * that share it are a 2.6 m UAV and a 6 m one and a single set of numbers
@@ -270,6 +294,50 @@ export function wheeledGroundContact(
 }
 
 /**
+ * How a taildragger sits, rolls and leaves the ground.
+ *
+ * The same wheels and very nearly the same numbers, and one difference that
+ * changes the whole of a take-off. A tricycle undercarriage holds the wing
+ * level and the elevator has to pull it up to flying incidence; this one has
+ * already put it there. Twelve degrees is what a Dr.I sits at on its skid and
+ * it is most of what the wing has to give, so an aeroplane on a taildragger is
+ * not rotated off anything — it accelerates until twelve degrees is enough and
+ * leaves, which on a wing loading like a foam triplane's is a very short way
+ * down the field.
+ *
+ * `restHeight` is the gear again, and it is nothing like a tricycle's fraction
+ * of the span, because the point it is measuring to is different: on a
+ * triplane the centre of gravity sits on the *middle* wing with a whole wing
+ * and an undercarriage beneath it, which is a fifth of the span off the ground
+ * rather than a twelfth. It is where a Dr.I's middle wing actually stands.
+ *
+ * `friction` is half again a tricycle's and for a plain reason: two of the
+ * three points on the ground are wheels and the third is a skid, and a skid
+ * does not roll. It is still a fraction of what a foam belly costs, so the
+ * aeroplane accelerates perfectly well — it just also stops in its own length
+ * once the tail is down again, which is what a skid is for.
+ */
+export function taildraggerGroundContact(
+  config: AircraftConfig,
+): GroundContactOptions {
+  return {
+    restHeight: config.wingSpan / 4.8,
+    friction: 0.07,
+    restPitch: 12 * DEG_TO_RAD,
+    // Nothing: it is already sitting on its tail, and no amount of back stick
+    // is going to lift the aeroplane any further onto it.
+    rotateRange: 0,
+    // Forward stick is the useful direction on this one. Ten degrees puts the
+    // tail up and the wing back to about level, which is how a taildragger is
+    // held straight down a runway and how it is stopped from climbing away
+    // before it is ready to.
+    pushRange: 10 * DEG_TO_RAD,
+    settleSeconds: 0.2,
+    stopSpeed: 0.4,
+  };
+}
+
+/**
  * How far clear a multirotor has to get before it counts as flying, metres.
  *
  * Much less than a wing's. The margin exists to stop a float in the flare
@@ -287,6 +355,9 @@ export function touchdownLimitsFor(config: AircraftConfig): TouchdownLimits {
 
 /** How an airframe behaves once it is on the ground. */
 export function groundContactFor(config: AircraftConfig): GroundContactOptions {
+  if (config.undercarriage === "taildragger") {
+    return taildraggerGroundContact(config);
+  }
   if (config.undercarriage) return wheeledGroundContact(config);
   if (config.shape === "rocket") return ROCKET_GROUND_CONTACT;
   return config.rotor ? ROTOR_GROUND_CONTACT : GROUND_CONTACT;
@@ -460,8 +531,12 @@ export function stepGroundContact(
   // Belly on the slope, nose along the current heading, and a few degrees of
   // incidence the pilot can add to with elevator. The heading itself is left
   // alone so the aircraft can still be steered along the ground.
-  const restPitch =
-    options.restPitch + clamp(pitchCommand, -1, 1) * options.rotateRange;
+  const command = clamp(pitchCommand, -1, 1);
+  const range =
+    command >= 0
+      ? options.rotateRange
+      : (options.pushRange ?? options.rotateRange);
+  const restPitch = options.restPitch + command * range;
   const cosP = Math.cos(restPitch);
   const sinP = Math.sin(restPitch);
   V.set(

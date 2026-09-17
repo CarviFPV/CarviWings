@@ -10,6 +10,14 @@
  * the whole flight. The frames are found by fetching the world before the
  * flight instead of during it; see `sim/render/preloadPlan`.
  *
+ * The one thing that moves `maximumScreenSpaceError` afterwards is not a
+ * governor and does not read the frame rate: a screen-space error is a promise
+ * about pixels, and the RC ground view's eye zooms, so honouring the promise
+ * literally would have a narrowing view fetch five times the world. The
+ * threshold is relaxed by exactly what the zoom magnified, which leaves the
+ * tiles chosen where this file put them. See `viewDetail.ts`; no other camera
+ * touches it.
+ *
  * The caches are sized for that. A preload that is evicted before the pilot
  * turns into it was a wait for nothing, and the tile that has to be fetched
  * again is fetched in a frame somebody is flying — which is the one place this

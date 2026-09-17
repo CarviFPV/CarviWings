@@ -6,7 +6,8 @@ A browser FPV simulator flown over the real Earth. Terrain, satellite imagery
 and 3D buildings stream from Cesium ion, so any point on the planet can be
 flown from.
 
-Ten aircraft: three fixed wings, two multirotors and five petrol-engined
+Thirteen aircraft: three fixed wings, a foam-board triplane, a twin-boom foam
+warbird, a foam-board biplane, two multirotors and five petrol-engined
 aeroplanes. Seven ways to fly them: two open flights and five missions.
 
 There are no guns, missiles or projectiles. In the combat missions the aircraft
@@ -24,7 +25,7 @@ the only thing the simulator needs from outside is a free Cesium ion token.
 ### 1. Install it
 
 Download `CarviWings_<version>_x64-setup.exe` from the
-[Releases page](https://github.com/CarviFPV/FPV-Wing-World-Simulator/releases)
+[Releases page](https://github.com/CarviFPV/CarviWings/releases)
 and install it, or take the `-portable.exe` beside it and run it as one file —
 that one installs nothing and can be carried on a stick.
 
@@ -88,8 +89,8 @@ on the machine — and the way to work on it. [Node.js](https://nodejs.org) 20.9
 or newer, npm and git are all it needs.
 
 ```bash
-git clone https://github.com/CarviFPV/FPV-Wing-World-Simulator.git
-cd FPV-Wing-World-Simulator
+git clone https://github.com/CarviFPV/CarviWings.git
+cd CarviWings
 npm install
 npm run dev                    # http://localhost:3000
 ```
@@ -107,8 +108,8 @@ callsign. Nothing else has to be set up.
 **A branch rather than `main`.** Clone the branch straight away:
 
 ```bash
-git clone -b <branch> https://github.com/CarviFPV/FPV-Wing-World-Simulator.git
-cd FPV-Wing-World-Simulator
+git clone -b <branch> https://github.com/CarviFPV/CarviWings.git
+cd CarviWings
 npm install
 npm run dev
 ```
@@ -187,7 +188,7 @@ The full manual is **[docs.md](docs.md)**:
 | [Controls](docs.md#controls) | The key table, rebinding, game pads and transmitters |
 | [Choosing where to fly](docs.md#choosing-where-to-fly) | The globe, search, coordinates, and how much world is drawn |
 | [Modes](docs.md#modes) | Free flight, ground view, intercept, strike, race, formation, festival |
-| [The hangar](docs.md#the-hangar) | The ten aircraft and how each of them flies |
+| [The hangar](docs.md#the-hangar) | The thirteen aircraft and how each of them flies |
 | [The aircraft builder](docs.md#the-aircraft-builder) | Motors, packs, engines, tanks, rates and paint |
 | [Flight modes](docs.md#flight-modes) | Acro, angle, the holds, and the return home |
 | [The weather system](docs.md#the-weather-system) | Live and typed METAR, cloud, wind aloft, rain and snow |
@@ -198,6 +199,10 @@ The full manual is **[docs.md](docs.md)**:
 | [Settings reference](docs.md#settings-reference) | Every setting, category by category |
 | [The desktop application](docs.md#the-desktop-application) | The Tauri shell, and how a release is cut |
 | [Development](docs.md#development) | Layout, testing and the stack |
+
+---
+
+CarviWings is sponsored by **[CarviLabs](https://carvilabs.com)**.
 
 ---
 

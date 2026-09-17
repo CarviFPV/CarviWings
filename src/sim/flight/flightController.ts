@@ -21,6 +21,13 @@
  *   + course hold ──────► heading → bank ────────────► roll
  *   + altitude hold ────► height → climb → pitch ────► pitch, throttle
  *   RTH ────────────────► navigation, over all of it ► everything
+ *
+ * With one thing underneath all of it on a multirotor, because on one airframe
+ * the sticks and the airframe do not agree about which axis is which. A
+ * tailsitter carries its camera looking up its own body, so what the pilot
+ * calls roll the aircraft does on its yaw axis; the rate loops are run in the
+ * frame the pilot is looking down and the commands are rotated back into the
+ * airframe's on the way out. See `RotorConfig.stickMixDeg`.
  */
 
 import { toHeadingPitchRoll } from "../math/quat";
@@ -166,7 +173,22 @@ export const ROTOR_MODE_GAINS = {
 export const ROTOR_RATE_LOOP_GAINS = {
   proportional: 0.0005,
   integral: 0.005,
-  integralLimit: 40,
+  /**
+   * Largest error the integral will carry, degrees.
+   *
+   * Two hundred for the same reason the wing's is sixty: at this integral gain
+   * that is exactly enough to command full stick on its own, so the loop can
+   * still ask the airframe for everything it has. A quadcopter never finds out
+   * — its rotors will put five hundred degrees a second squared into a 293 g
+   * frame, so the integral has the rate long before it has wound anywhere near
+   * here — but an airframe with twenty-five times the inertia and a tail
+   * resisting it needs several times the command for the same rate, and a
+   * clamp that stops at a fifth of a stick simply never delivers the rates it
+   * is set to. Winding up against an authority the aircraft does not have is
+   * held off by the loop declining to integrate while it is saturated, which
+   * is where that belongs.
+   */
+  integralLimit: 200,
 } as const;
 
 /** The two terms a rate loop is tuned with, whichever airframe it is flying. */
@@ -568,6 +590,20 @@ export class FlightModeController {
     const pitchRateDeg = -state.angularVelocity.y * RAD_TO_DEG;
     const yawRateDeg = -state.angularVelocity.z * RAD_TO_DEG;
 
+    // --- The frame the pilot is flying in -----------------------------------
+    // Zero on everything with its camera down the nose, which is every
+    // multirotor but the tailsitter: there the airframe's roll axis and the
+    // one the picture turns about are the same axis, and there is nothing to
+    // do. On an airframe built along the rotor axis they are sixty-five degrees
+    // apart, so the pair has to be rotated — the rates the loops measure into
+    // the frame the pilot sees them in, and the commands they produce back out
+    // of it. Pitch is the same axis either way and is left alone.
+    const mix = (rotor?.stickMixDeg ?? 0) * DEG_TO_RAD;
+    const mixCos = Math.cos(mix);
+    const mixSin = Math.sin(mix);
+    const viewRollRate = rollRateDeg * mixCos - yawRateDeg * mixSin;
+    const viewYawRate = rollRateDeg * mixSin + yawRateDeg * mixCos;
+
     if (this.latchCourse) {
       this.heldCourse = angles.headingDeg;
       this.latchCourse = false;
@@ -579,7 +615,15 @@ export class FlightModeController {
 
     const angle = this.mode === FLIGHT_MODE.Angle;
     const acro = this.mode === FLIGHT_MODE.Acro;
-    if (!angle && !acro && !this.courseHold && !this.altitudeHold) return out;
+    // Angle mode is the one that does not get the rotation. It is holding an
+    // attitude against the earth rather than turning the aircraft the way the
+    // pilot asked, and the earth does not care where the camera is pointing:
+    // rotating its output would send most of a levelling demand to the wrong
+    // axis and it would never level anything.
+    const rotated = mix !== 0 && !angle;
+    if (!angle && !acro && !this.courseHold && !this.altitudeHold) {
+      return rotated ? this.toBodyAxes(out, mixCos, mixSin) : out;
+    }
 
     // --- Roll and pitch -----------------------------------------------------
     const tiltLimit = rotor?.maxTiltDeg ?? 55;
@@ -606,7 +650,7 @@ export class FlightModeController {
     } else if (acro) {
       out.roll = this.holdRate(
         rateCommand(pilot.roll, this.rates.rollRate, this.rates.rollExpo),
-        rollRateDeg,
+        rotated ? viewRollRate : rollRateDeg,
         dt,
         "roll",
         ROTOR_RATE_LOOP_GAINS,
@@ -636,7 +680,8 @@ export class FlightModeController {
       }
       const error = ((this.heldCourse - angles.headingDeg + 540) % 360) - 180;
       out.yaw = clamp(
-        error * g.headingGain - yawRateDeg * g.yawRateDamping,
+        error * g.headingGain -
+          (rotated ? viewYawRate : yawRateDeg) * g.yawRateDamping,
         -1,
         1,
       );
@@ -666,6 +711,26 @@ export class FlightModeController {
       );
     }
 
+    return rotated ? this.toBodyAxes(out, mixCos, mixSin) : out;
+  }
+
+  /**
+   * Turns the pair of commands the pilot made in their own frame into the pair
+   * the airframe has to make to produce it.
+   *
+   * The transpose of the rotation the rates came in through, so the two are
+   * exactly each other's inverse and a stick held still asks for a rotation
+   * that stays still. On a tailsitter leaned over in the dash it is very nearly
+   * a swap: what the pilot calls roll the aircraft does on its yaw axis, and
+   * what the pilot calls rudder it does on its roll axis, backwards. Clamped
+   * because two axes at once can ask the mixer for more than one stick's worth,
+   * which is the corner every rotated mix has and the mixer would clamp anyway.
+   */
+  private toBodyAxes(out: FlightInput, cos: number, sin: number): FlightInput {
+    const viewRoll = out.roll;
+    const viewYaw = out.yaw;
+    out.roll = clamp(viewRoll * cos + viewYaw * sin, -1, 1);
+    out.yaw = clamp(-viewRoll * sin + viewYaw * cos, -1, 1);
     return out;
   }
 

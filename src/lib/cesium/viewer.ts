@@ -126,6 +126,15 @@ export async function createFlightViewer(
       selectionIndicator: false,
       navigationInstructionsInitiallyVisible: false,
       requestRenderMode: false,
+      // The flight is only ever flown on the globe, and saying so spares every
+      // primitive the 2D half of its build: the world transform, the split at
+      // the antimeridian and the projection of every vertex to a flat map it
+      // will never be drawn on. That projection is also a crash. An airframe's
+      // geometry is in its own frame, metres from the origin, and a vertex
+      // sitting exactly on it — the apex of a propeller spinner — has no
+      // longitude; the release build of Cesium has the check for that stripped
+      // out, and the render loop stops the moment such an aircraft appears.
+      scene3DOnly: true,
       contextOptions: {
         webgl: {
           alpha: false,

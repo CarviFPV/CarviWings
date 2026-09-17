@@ -27,6 +27,8 @@ import type { Vec3 } from "@/sim/math/vec3";
 import * as V from "@/sim/math/vec3";
 import type { MeshKind } from "@/sim/render/aircraftMesh";
 import { MESH_KIND, meshOfKind } from "@/sim/render/aircraftMesh";
+import { viewMagnification } from "@/sim/render/detailBudget";
+import type { ViewDetail } from "./viewDetail";
 
 export const CAMERA_MODE = {
   Fpv: "FPV",
@@ -117,6 +119,14 @@ export class CameraRig {
   private groundFieldOfView = GROUND_MAX_FOV;
   private groundInitialised = false;
 
+  /**
+   * The world's detail budget, where there is one to hold.
+   *
+   * The ground view is the only camera that zooms, so it is the only one whose
+   * zoom the world behind it has to be protected from: see `viewDetail.ts`.
+   */
+  private detail: ViewDetail | null = null;
+
   /** Smoothed chase camera position in local ENU metres. */
   private readonly chasePosition = V.vec3();
   private chaseInitialised = false;
@@ -173,6 +183,18 @@ export class CameraRig {
       mesh.fpvCamera.offset[2] * scale,
     );
     this.fpvTilt = mesh.fpvCamera.tiltDegrees * DEG_TO_RAD;
+  }
+
+  /**
+   * Hands the rig the detail budget its zoom is spent against.
+   *
+   * Optional: a rig without one still zooms, it simply lets the renderer answer
+   * the zoom with tiles, which is what every camera did before the ground view
+   * had an eye that narrowed.
+   */
+  setDetail(detail: ViewDetail | null): void {
+    this.detail = detail;
+    this.holdDetail();
   }
 
   /**
@@ -249,12 +271,32 @@ export class CameraRig {
       // The mouse owns the camera here, so read the pose back out of Cesium
       // instead of writing it, and keep the HUD working either way.
       this.readPoseFromCamera();
+      this.holdDetail();
       return;
     }
     this.shakeTime += dt;
     if (this.mode === CAMERA_MODE.Fpv) this.updateFpv(state, dt);
     else if (this.mode === CAMERA_MODE.Ground) this.updateGround(state, dt);
     else this.updateChase(state, dt);
+    this.holdDetail();
+  }
+
+  /**
+   * Tells the world how much it is being magnified onto the screen.
+   *
+   * Only the eye on the field narrows; every other camera holds one angle for
+   * the whole flight, so every other camera magnifies nothing and the world is
+   * drawn at exactly the detail the quality preset asked for. Measured against
+   * the widest the eye ever opens, so the flight the pilot is used to — a model
+   * close in, the view wide — is the one that is unchanged.
+   */
+  private holdDetail(): void {
+    if (!this.detail) return;
+    this.detail.setMagnification(
+      this.mode === CAMERA_MODE.Ground
+        ? viewMagnification(this.groundFieldOfView, GROUND_MAX_FOV)
+        : 1,
+    );
   }
 
   private updateFpv(state: AircraftState, dt: number): void {

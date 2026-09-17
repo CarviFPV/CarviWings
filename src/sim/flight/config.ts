@@ -119,6 +119,49 @@ export interface RotorConfig {
    * own flight path.
    */
   readonly dragCentreOffset: number;
+  /**
+   * Aerodynamic rate damping from the airframe's own tail, N m per rad/s per
+   * m/s of airspeed, about the two axes across the rotor axis.
+   *
+   * Zero on anything without a tail, which is every ordinary multirotor: four
+   * arms and a stack have nothing out behind them to resist being rotated, and
+   * `rollDamping` and the two beside it — the rotors' own, and constant,
+   * because they do not care how fast the air is arriving — are the whole of
+   * what damps one.
+   *
+   * An airframe with fins on it is the other case. A surface a body's length
+   * behind the centre of gravity meeting the air at a rotation rate makes a
+   * force proportional to both, so the damping it adds climbs with the
+   * airspeed rather than sitting still — and on a fin-stabilised body at three
+   * hundred kilometres an hour it is several times what the rotors are
+   * contributing. Without it the weathercock below is a spring with almost
+   * nothing across it, and the airframe rings on it.
+   */
+  readonly finDamping: number;
+  /**
+   * Angle between the airframe's own axes and the ones the pilot flies in,
+   * degrees.
+   *
+   * Zero on almost everything, and the reason is that on almost everything the
+   * camera looks along the nose. Roll the airframe and the picture rolls; yaw
+   * it and the picture swings sideways. The stick that banks the horizon is
+   * the roll stick because the two axes are the same axis.
+   *
+   * They are not the same axis on a tailsitter. An airframe built along the
+   * rotor axis carries its camera looking *up* the body, so what rolls the
+   * picture is the aircraft spinning about its own length — which is the yaw
+   * axis — and what swings the picture sideways is the aircraft rolling. Left
+   * alone, the pilot gets a roll stick that acts as a rudder and a rudder that
+   * banks the horizon backwards, which is exactly as strange to fly as it
+   * sounds.
+   *
+   * So the pair of sticks is rotated by this angle into the airframe's axes
+   * before the mixer sees it, and the rates coming back are rotated the other
+   * way. It is the mount angle of the camera and nothing else: Betaflight
+   * spells the same number `fpv_angle_mix`, and ArduPilot's tailsitters split
+   * roll and yaw the same way rather than handing the pilot the raw body axes.
+   */
+  readonly stickMixDeg: number;
 }
 
 export interface AircraftConfig {
@@ -249,7 +292,7 @@ export interface AircraftConfig {
 
   // --- Undercarriage --------------------------------------------------------
   /**
-   * True on an aircraft that has wheels under it. Left out, it has not.
+   * What an aircraft has under it, when it has wheels. Left out, it has none.
    *
    * Every other wing here lands on its belly and is launched out of somebody's
    * hand, because that is what a foam wing with nothing underneath it does. An
@@ -260,8 +303,19 @@ export interface AircraftConfig {
    * on its gear at a height the gear decides; and it survives arriving far
    * faster than a belly ever would, because wheels are what an aeroplane is
    * meant to arrive on.
+   *
+   * Which of the two it is decides the one thing an undercarriage does that is
+   * not the same on both. A `tricycle` sits on a nosewheel, nearly level, and
+   * the elevator's job on the runway is to pull the nose up off it — so it
+   * rotates at flying speed and not before. A `taildragger` sits back on a
+   * skid with its wing already at most of the incidence it has, so it is not
+   * rotated at all: it reaches the speed at which that incidence is enough and
+   * simply leaves, which is what an aeroplane off the ground in a dozen metres
+   * is doing. What the elevator has on the ground is the other direction —
+   * stick forward lifts the tail and puts the wing back to something like
+   * level.
    */
-  readonly undercarriage?: boolean;
+  readonly undercarriage?: "tricycle" | "taildragger";
 
   // --- Looks ----------------------------------------------------------------
   /**
@@ -280,8 +334,23 @@ export interface AircraftConfig {
    * under those rotors is a missile standing on its tail. `skyeye` is the
    * fuselage-and-booms UAV: a wing by its equations and an aeroplane to look
    * at, with a tail on the end of two tailbooms and wheels under it.
+   * `triplane` is three wings, struts between them and a skid on the back,
+   * which no set of coefficients is ever going to imply. `p38` is the same
+   * argument one step further: two booms with a motor on the front of each and
+   * a gondola slung between them is an aeroplane the flight model flies as one
+   * wing and a viewer would never mistake for one. And `biplane` is the pair
+   * of them: two wings, four struts and a tailwheel, which the coefficients
+   * describe as one wing because that is how a wing cell works and which a
+   * viewer would never accept drawn as one.
    */
-  readonly shape?: "glider" | "x8" | "rocket" | "skyeye";
+  readonly shape?:
+    | "glider"
+    | "x8"
+    | "rocket"
+    | "skyeye"
+    | "triplane"
+    | "p38"
+    | "biplane";
 }
 
 export const PLAYER_WING: AircraftConfig = {
@@ -503,6 +572,13 @@ export const CA35_160: AircraftConfig = {
     // Four millimetres: the 750 mAh pack sits on the top plate and everything
     // the air actually meets is under it.
     dragCentreOffset: -0.004,
+    // Nothing behind it to weathervane on, so what damps a quadcopter is the
+    // rotors, and the rotors do not care what the airspeed is.
+    finDamping: 0,
+    // The camera looks along the nose, so the axes the pilot flies are the
+    // airframe's own. Which is the ordinary case, and why this is the
+    // ordinary number.
+    stickMixDeg: 0,
   },
 } as const;
 
@@ -757,12 +833,52 @@ export const X10_INTERCEPTOR: AircraftConfig = {
      *
      * Fifteen times a racing quad's offset and it means the opposite thing.
      * Area behind the weight in the direction of flight is what a weathercock
-     * is, and this airframe flies nose-first, so its fins are behind it: let
-     * the thrust fall away and the couple that arrives swings the nose into the
-     * airflow instead of tipping the aircraft out of it. A dead quadcopter
-     * tumbles; a dead X10 puts its nose down and arrives like a dart.
+     * is, and this airframe flies nose-first, so its fins are behind it: the
+     * couple the drag makes swings the nose into the airflow instead of
+     * tipping the aircraft out of it.
+     *
+     * On a quadcopter that couple is a few millimetres of build error and the
+     * turning rotors hold all of it out, which is why none of it is felt until
+     * the pack is flat. Here it is a tail on an arm fifteen times as long at
+     * three times the airspeed, and no rotor disc is holding *that* out: it is
+     * the largest thing acting on the airframe after the thrust. So the X10
+     * weathervanes with the motors running — it flies where it is pointing
+     * rather than crabbing through a turn the way a quadcopter does — and with
+     * them stopped it puts its nose down and arrives like a dart.
      */
     dragCentreOffset: -0.06,
+    /**
+     * The fins again, this time resisting being rotated rather than being
+     * pointed.
+     *
+     * The weathercock above is a spring, and a spring on its own only means
+     * the airframe oscillates about the airflow instead of settling onto it.
+     * What settles it is four fins a body's length behind the weight: at 95 m/s
+     * they are worth several times the rotors' own damping, which is why a
+     * finned body at speed feels planted where a quadcopter feels loose.
+     *
+     * Sized to put the airframe a little under half of critical damping at the
+     * top of its speed range. A kick in the nose is gone inside a second
+     * rather than ringing on, and the airframe still swings rather than being
+     * nailed rigid, which is what a real fin-stabilised body does.
+     */
+    finDamping: 0.0018,
+    /**
+     * The camera is in the nose, and on this airframe the nose is the rotor
+     * axis — so the pilot is looking sixty-five degrees away from the axis
+     * every other aircraft here rolls about.
+     *
+     * Which makes it the one airframe whose sticks have to be turned into the
+     * airframe's axes rather than handed to it. Leaned over in the dash, what
+     * banks the horizon is the aircraft spinning about its own length and what
+     * swings the nose across the sky is the aircraft rolling; hand the pilot
+     * the raw axes and the roll stick skids it sideways at forty-five degrees
+     * of sideslip while the rudder banks the picture the wrong way. Sixty-five
+     * degrees is the camera's own mount angle, and rotating the pair by it
+     * gives back the aircraft the pilot is looking at: bank, then pull, and it
+     * comes round like an aeroplane.
+     */
+    stickMixDeg: 65,
   },
 
   shape: "rocket",
@@ -864,7 +980,7 @@ const SKYEYE_COMMON = {
   // dustbin lid between the stick and the thrust.
   throttleRate: 0.6,
 
-  undercarriage: true,
+  undercarriage: "tricycle",
   shape: "skyeye",
 } as const;
 
@@ -1200,6 +1316,548 @@ export const SKYEYE_6000: AircraftConfig = {
 
   undercarriage: SKYEYE_COMMON.undercarriage,
   shape: SKYEYE_COMMON.shape,
+} as const;
+
+/**
+ * The FT Triplane XL: three wings, a skid, and the oldest way of flying here.
+ *
+ * Flite Test's Fokker Dr.I in laser-cut foam board, and their own description
+ * of it is that the Red Baron flies again. The published numbers are the kit's:
+ * 48.5 inches across the top wing, 1429 g before the pack goes in, an FT 2814
+ * on a 12x4.5 in front of it, a 3300 mAh 3S under the hatch, four nine-gram
+ * servos, and 16, 16 and 12 degrees of aileron, rudder and elevator with 60% of
+ * the aileron mixed into the rudder. The centre of gravity is 63.5 mm behind
+ * the middle wing's leading edge, which on a 200 mm chord is a third of the way
+ * back — an aerobatic balance rather than a trainer's.
+ *
+ * A triplane is not a monoplane with two spare wings, and nearly every number
+ * below is different because of it. Three wings of a 200 mm chord on a 1.23 m
+ * span is 0.66 m^2 of wing under an aeroplane that weighs 1.76 kg — more wing
+ * than the 1.4 m interceptor has, on a shorter span, under three quarters of
+ * its weight. That is nine ounces to the square foot, the lightest wing loading
+ * in the hangar, and the whole of why this thing flies at a walking pace and is
+ * off the ground in a dozen metres. It is paid for in drag: the aspect ratio
+ * *of the whole aeroplane* is 2.3, there is more strut and cabane on it than
+ * the rest of the hangar has put together, and `cd0` is higher than any wing
+ * here. It does 56 km/h flat out and the motor is not what is stopping it.
+ *
+ * What it is not is as inefficient as an aspect ratio of 2.3 sounds. Three
+ * wings one above another are a crude box: each flies in the others' field and
+ * the set of them sheds less vortex than a single wing carrying the same lift
+ * on the same span would. The induced drag comes out around seventy per cent of
+ * that single wing's, which is why `inducedDragFactor` is well under
+ * 1/(pi AR) — and it is the entire reason anybody ever built one of these.
+ *
+ * The rest of the aeroplane is the tail and the skid. Three wings' worth of
+ * area works against one tailplane, so every moment coefficient here is small
+ * next to the wings and UAVs beside it: measured against 0.66 m^2 of wing, a
+ * Dr.I's tail volume is a third of a foam glider's, and it is balanced a third
+ * of the chord back on top of that, which is an aerobatic balance rather than a
+ * trainer's. So it is the least statically stable thing in the hangar, and that
+ * is deliberate. And it sits on its skid at twelve degrees,
+ * which is most of the incidence the wing has to give, so it is not rotated off
+ * anything: open the throttle, reach the speed at which twelve degrees is
+ * enough — about 26 km/h — and it leaves. That is the "incredibly short
+ * take-off" on the box, and it is geometry rather than power.
+ *
+ * As with every airframe here, the mass, thrust and pitch speed describe it *as
+ * delivered* — the FT 2814 on the 12x4.5 the kit specifies, on the 3300 mAh 3S
+ * it is flown on. Fit anything else in the hangar and they are worked out again
+ * from the hardware.
+ */
+export const FT_TRIPLANE_XL: AircraftConfig = {
+  name: "FT Triplane XL",
+
+  mass: 1.758,
+  // Almost nothing is out at the wingtips: three foam-board wings on skewer
+  // spars weigh a few dozen grams each, and the motor, the pack, the servos and
+  // the plywood formers — which is most of the aeroplane — are all inside
+  // 60 mm of the centreline. So a triplane resists rolling with a fifth of what
+  // a foam delta of the same weight does, and only the short span keeps it from
+  // being less still.
+  inertiaRoll: 0.068,
+  // The other way round from a flying wing, and by a factor of ten: a metre of
+  // fuselage with a motor on one end and a tail on the other is what a pitch
+  // inertia is made of, and a delta has no such thing.
+  inertiaPitch: 0.09,
+  inertiaYaw: 0.12,
+
+  // Three wings of a 200 mm chord: 1.232 m across the top, 1.10 across the
+  // middle and 0.99 across the bottom, in the proportions a Dr.I's are. The
+  // span is the top wing's, which is the one the kit is sold by.
+  wingArea: 0.66,
+  wingSpan: 1.232,
+  // One wing's chord rather than area over span. A triplane's area is three
+  // wings deep and its chord is not: what a pitching moment is measured against
+  // is the wing the air actually meets, and all three of them are 200 mm.
+  chord: 0.2,
+  // Half the top wing's span, and the rest is the metre of aeroplane sticking
+  // out in front of and behind it.
+  collisionRadius: 0.75,
+
+  maxThrust: 25.4,
+  propPitchSpeed: 19.8,
+  // Flown with rather than set: a barnstormer lives on the throttle. A 12-inch
+  // propeller on a 2814 has real inertia in it though, so it answers in a
+  // sixth of a second rather than a twentieth.
+  throttleRate: 1.0,
+  throttleLag: 0.16,
+
+  // Folded foam board: a curved top and a flat bottom. It makes lift standing
+  // still, which is what an aeroplane that leaves the ground at a walking pace
+  // wants, and it is why inverted takes a fistful of down elevator.
+  cl0: 0.12,
+  // Two things that nearly cancel. Three stacked wings do not behave as three
+  // separate ones — taken together they work like a single wing of an effective
+  // aspect ratio near 3.3 rather than the 2.3 the planform reads at, which is
+  // worth a good deal of slope. And a folded sheet of foam board at this
+  // Reynolds number has rather less slope to start from than a thin aerofoil.
+  // 3.5 is where the two of them land.
+  clAlpha: 3.5,
+  // Fourteen degrees, and it arrives slowly. The three wings do not stall
+  // together — the top one goes first and the bottom one is still flying — so
+  // the break is spread across a wider band than anything else here, which is
+  // what lets the aeroplane be parked at high alpha instead of dropped out of
+  // it.
+  stallAngle: 0.25,
+  stallBlend: 0.22,
+
+  // Three wings, eight struts, a cowl, two 4.3-inch wheels and a tail skid, all
+  // in each other's wake. Dirtier per square metre than any wing here, and it
+  // has a great many square metres; only the smallest Skyeye is worse, and that
+  // is the same pod and undercarriage on a third of the wing.
+  cd0: 0.053,
+  // 0.70 / (pi * AR * 0.75). The 0.70 is what three stacked wings save over one
+  // wing carrying the same lift on the same span, and it is the only reason a
+  // shape with an aspect ratio of 2.3 flies at all.
+  inducedDragFactor: 0.13,
+
+  // A deep slab fuselage with a wing above it and a wing below it. A great deal
+  // of keel for the size, though rather less of it behind the centre of gravity
+  // than a boom-tailed UAV has.
+  cyBeta: -0.3,
+
+  // The small numbers, and they are small for one reason: they are measured
+  // against three wings' area and one tailplane. A Dr.I's tail volume against
+  // 0.66 m^2 of wing is a third of what a foam glider has against its own,
+  // and the aeroplane is balanced a third of the chord back on top of that. So
+  // it is stable, and only just — hands off it holds about 36 km/h, and it
+  // answers the elevator the way something balanced that far back does.
+  //
+  // Which is also why twelve degrees of elevator is enough. Against this much
+  // stability, full back stick asks for about twenty-five degrees of incidence:
+  // nearly twice the stall, which is exactly what an aeroplane sold on high
+  // alpha flying is for, and nowhere near what the same surface would command
+  // on a wing that actually resisted it.
+  cm0: 0.02,
+  cmAlpha: -0.22,
+  cmQ: -8,
+  cmElevator: 0.075,
+
+  // Ailerons on the top wing, which is where a Dr.I carries them, at the
+  // manual's 16 degrees — and the authority is a third of what the same
+  // surfaces would be worth on a monoplane, because it too is measured against
+  // three wings. So it rolls at a little over a hundred degrees a second at
+  // cruise: deliberate, scale, and nothing like the wings beside it. The
+  // agility this aeroplane is sold on is in pitch and yaw, which is exactly
+  // what barnstorming is.
+  clAileron: 0.05,
+  clP: -0.55,
+  // Three flat wings and no dihedral in any of them, so it does not pick a
+  // dropped wing back up by itself. What little there is comes from the wing
+  // above the centre of gravity, the wing below it and the fin.
+  clBeta: -0.03,
+
+  cnBeta: 0.045,
+  cnR: -0.06,
+  // A big balanced rudder, and on this aeroplane a primary control rather than
+  // a trimmer: half the barnstorming repertoire is flown on it.
+  cnRudder: 0.03,
+  // Three times the interceptor's relative to its own aileron, and the manual
+  // says so before this file does: Flite Test set one of these up with 60% of
+  // the aileron mixed into the rudder, and that mix exists because big
+  // ailerons on a short span drag the wing that is going up backwards.
+  cnAileron: -0.018,
+
+  minControlSpeed: 3,
+  // Foam board, hot glue and eight struts. Past about a hundred km/h the
+  // interplane struts are the only thing holding three wings in formation, and
+  // they are 5 mm of paper and foam.
+  neverExceedSpeed: 28,
+
+  // Two wheels forward and a skid on the back, which is what the kit contains
+  // and what puts the wing at twelve degrees before the aeroplane has moved.
+  undercarriage: "taildragger",
+  shape: "triplane",
+} as const;
+
+/**
+ * The FT Master Series P-38 Lightning MKR2: two engines, two tails, one wing.
+ *
+ * Flite Test's Lockheed P-38 in laser-cut water-resistant foam board, and the
+ * first aeroplane here with more than one motor on it. The published numbers
+ * are the kit's: 57.5 inches across, the centre of gravity 45 mm behind the
+ * wing's leading edge, the Power Pack C Radial v.2 Twin — two FT Radial 2218
+ * KV1180 motors, two 40 A controllers and a pair of opposite-handed blades —
+ * and a 2300 mAh 4S under the hatch.
+ *
+ * What Flite Test do not publish is what one weighs, so it is built up rather
+ * than quoted: the board and plywood in the kit, four nine-gram servos and the
+ * 30 cm extensions the booms need, a receiver, the FPV camera and transmitter
+ * that make it one of these, then the two motors, their controllers and the
+ * pack. It comes out at 1.75 kg, which on 0.27 m^2 of wing
+ * is twenty-one ounces to the square foot — a warbird's loading, two and a half
+ * times the triplane's, and the reason this one is flown at a speed rather than
+ * parked at an attitude. It stalls at about 34 km/h and cruises in the
+ * eighties.
+ *
+ * The shape is the aeroplane. A P-38 is a wing with two booms in it, and where
+ * that shows up is not lift but everything that acts about an axis. The tails
+ * are on the end of half a metre of boom, so `cmQ` and `cnR` are a tailed
+ * aeroplane's rather than a foam wing's, and `cnBeta` is the largest here: two
+ * fins on two long arms weathervane harder than one fin on one. The booms also
+ * put a quarter of the aeroplane's mass out at a fifth of the span with the
+ * motors on the front of them and the tails on the back, which is why the pitch
+ * inertia is the other way round from every flying wing here — there is a metre
+ * of aeroplane fore and aft, and a triplane's worth of it out to each side.
+ *
+ * The centre of gravity is 45 mm behind the leading edge, which on a 195 mm
+ * mean chord is a shade under a quarter of the way back. That is a fifteen per
+ * cent static margin against a neutral point around 40%, and `cmAlpha` is
+ * simply that times the lift-curve slope: it holds a trim hands-off, it comes
+ * out of a stall by itself, and it is nothing like as eager in pitch as the
+ * Dr.I beside it.
+ *
+ * Two motors are worth saying out loud, because the flight model does not know
+ * there are two. `maxThrust` is both of them together, which is what the
+ * catalogue's `count` already means for a quadcopter, and there is no
+ * asymmetric case in here: lose one in reality and the aeroplane tries to
+ * invert itself, and nothing in this simulator takes an engine away one at a
+ * time. What the pair are worth is thrust — a foam twin is over-powered in a
+ * way a single never is, and this one carries a bit over twice its own weight
+ * in static thrust.
+ *
+ * As with every airframe here, the mass, thrust and pitch speed describe it *as
+ * delivered*. Fit anything else in the hangar and they are worked out again
+ * from the hardware.
+ */
+export const FT_P38_LIGHTNING: AircraftConfig = {
+  name: "FT Master Series P-38",
+
+  mass: 1.75,
+  // A quarter of the aeroplane is out on the booms at a fifth of the span, and
+  // the motors are the heaviest part of it. That is more resistance to rolling
+  // than a foam board wing of this weight would have on its own, and still a
+  // third of what the 1.4 m delta has, because a P-38's wing is thin board and
+  // a delta's is the whole aeroplane.
+  inertiaRoll: 0.14,
+  // The other way round from every flying wing here, and the booms are why: a
+  // metre of aeroplane with a motor on each front corner and a tail on each
+  // back one is what a pitch inertia is made of.
+  inertiaPitch: 0.17,
+  // Roll and pitch together, near enough, which is what a flat aeroplane's
+  // yaw inertia always is.
+  inertiaYaw: 0.29,
+
+  // 57.5 inches across, and the loft is drawn to it: a constant-chord centre
+  // section between the booms, then taper to the tip.
+  wingArea: 0.27,
+  wingSpan: 1.46,
+  // The mean aerodynamic chord, which is what the kit's centre of gravity is
+  // quoted against: 45 mm behind the leading edge is 23% of it.
+  chord: 0.19,
+  // A little over the half-span, which has to cover the two propeller discs
+  // sitting a fifth of the way out along it.
+  collisionRadius: 0.9,
+
+  maxThrust: 38,
+  propPitchSpeed: 28.3,
+  // Two motors on one stick, and they are flown with rather than set: a
+  // warbird is throttled through a circuit. Ten-inch-class blades on 2218s
+  // have some inertia in them, so they answer in about a seventh of a second.
+  throttleRate: 0.9,
+  throttleLag: 0.15,
+
+  // A built-up foam board aerofoil with a properly curved top rather than a
+  // folded sheet: it is the one part of a Master Series kit that is not a
+  // fold, and it is why this aeroplane has a cruise instead of a hover.
+  cl0: 0.11,
+  // An aspect ratio of 7.9 is worth about 5.0 per radian on a thin section,
+  // and foam board at this Reynolds number gives a little of that back.
+  clAlpha: 4.9,
+  // Twelve degrees, and it arrives as a taper-winged aeroplane's does: the
+  // outer panel goes before the centre section, so the stall is felt in roll
+  // before it is felt in pitch. The blend is narrower than the triplane's for
+  // exactly that reason.
+  stallAngle: 0.21,
+  stallBlend: 0.13,
+
+  // Two booms, two nacelles, a gondola between them and a fixed undercarriage
+  // under all three. Dirtier than the survey wing and the delta, cleaner than
+  // eight struts and three wings, and about where the 3.6 m Skyeye is — which
+  // is the same argument: a lot of body for the wing it is bolted to.
+  cd0: 0.048,
+  // 1 / (pi * 7.9 * 0.78). The span is the whole of it: this is the longest,
+  // thinnest wing in the hangar bar the Skyeyes, and it costs a third of what
+  // the triplane's stub does to make the same lift.
+  inducedDragFactor: 0.052,
+
+  // Two deep booms and two fins, all of it well off the centreline. More keel
+  // than anything here that is not a Skyeye.
+  cyBeta: -0.45,
+
+  cm0: 0.02,
+  // The static margin, times the lift-curve slope. Fifteen per cent of the
+  // chord between the centre of gravity at 23% and a neutral point at about
+  // 40%, which is what a tailplane on half a metre of boom buys and what makes
+  // this a stable aeroplane rather than an agile one.
+  cmAlpha: -0.72,
+  // Long arms damp hard. A P-38 does not wallow in pitch and this is why.
+  cmQ: -20,
+  // Against that stability, full back stick asks for about eighteen degrees of
+  // incidence — half again the stall, which is a stable aeroplane's elevator
+  // rather than a barnstormer's, and still enough to loop it in its own
+  // length.
+  cmElevator: 0.22,
+
+  // Outboard ailerons past the booms, and modest ones — this is the aeroplane
+  // whose roll rate was complained about until somebody put hydraulics on it.
+  // Against the roll damping of a wing this long it comes to a little under
+  // two hundred degrees a second at cruise, which is half a foam delta's and
+  // is the airframe rather than a preference.
+  clAileron: 0.065,
+  // A long wing resists rolling more than a stubby one, at the same rate.
+  clP: -0.62,
+  clBeta: -0.06,
+
+  // The largest here, and the geometry says so: two fins, each on half a metre
+  // of boom, with the boom's own side area behind the centre of gravity.
+  // Nothing else in the hangar weathervanes like this, which is most of why a
+  // P-38 tracks.
+  cnBeta: 0.1,
+  cnR: -0.13,
+  // Two rudders, worked together.
+  cnRudder: 0.05,
+  cnAileron: -0.011,
+
+  minControlSpeed: 5,
+  // Foam board with plywood spar boxes and two booms taking the tail loads.
+  // Stronger than the triplane by a long way and nowhere near a moulded wing:
+  // past about 160 km/h the booms start doing something they were not folded
+  // for.
+  neverExceedSpeed: 45,
+
+  // A nosewheel and two mains under the booms, which is what the kit contains
+  // and what the real one had first of any fighter.
+  undercarriage: "tricycle",
+  shape: "p38",
+} as const;
+
+/**
+ * The FT Baby Blender MKR2: two wings, 610 mm across, and all of it thrust.
+ *
+ * Flite Test's four-channel biplane in laser-cut water-resistant foam board,
+ * the fourth of the Swappable Series and the smallest aeroplane in the hangar
+ * that has a fuselage. The published numbers are the kit's: 24 inches across,
+ * 14 ounces before the pack goes in, the centre of gravity 80 mm behind the
+ * *top* wing's leading edge, Power Pack C — an FT Radial 2218 KV1180, a 40 A
+ * controller, four nine-gram servos and a 10x4.5 blade — a three-cell pack
+ * between 1300 and 2200 mAh, and twelve degrees of throw on low rate against
+ * thirty on high with 30% expo on both.
+ *
+ * Two wings is the whole aeroplane. A 610 mm span with a 160 mm chord on each
+ * of them is 0.195 m^2 under 567 g, which is nine and a half ounces to the
+ * square foot — the second lightest loading here, and only the triplane beats
+ * it. That is what "gentle stall characteristics" on the box is: it stalls at
+ * 27 km/h. What it costs is the same thing every multiplane pays. The aspect
+ * ratio of the cell is 1.9, the lowest of anything in this simulator, and a
+ * wing that stubby makes its lift expensively however many of them there are.
+ *
+ * Not as expensively as 1.9 sounds, though, and for the reason biplanes were
+ * built at all: two wings a gap apart shed less vortex between them than one
+ * wing carrying the same lift on the same span. On a 99 mm gap over a 610 mm
+ * span that saving is about a quarter, and it is very nearly exactly what a
+ * rectangular foam board wing loses to not being elliptical — so
+ * `inducedDragFactor` lands a shade *under* the ideal 1/(pi AR) the planform
+ * reads at, where a monoplane of this shape would sit a quarter above it.
+ *
+ * The rest of the aeroplane is the power. Power Pack C on a 397 g airframe is
+ * 15.5 N of static thrust under 5.6 N of aeroplane: two and three quarter
+ * times its own weight, which is the most of any aeroplane here and nearly
+ * twice what the triplane is over-powered by. And it goes nowhere in
+ * particular with it — a 10x4.5 on three cells screws forward at 76 km/h and
+ * the airframe is draggy enough to stop at 64, so the whole of that thrust is
+ * available for going *up* rather than along. That is the aeroplane the box describes: loops
+ * out of level flight, hammerheads, and enough left over to hang on the
+ * propeller at an attitude nothing else here will hold.
+ *
+ * The tail is big and the arm is short, which is the other half of it. Twelve
+ * inches of tailplane on a 24-inch wing is a fifth of the wing's area working
+ * on 150 mm of arm, so it answers instantly and damps less than its size
+ * suggests, and the elevator is 40% of the tail's chord. Against a centre of
+ * gravity a third of the chord back, full low-rate elevator asks for about
+ * twenty-four degrees of incidence — getting on for twice the stall, which is
+ * exactly the high alpha the kit is sold on.
+ *
+ * The throws are worth saying out loud, because the kit gives two of them and
+ * only one can be an aerodynamic coefficient. Twelve degrees and thirty are a
+ * switch on the transmitter, not two aeroplanes, and this simulator already
+ * has somewhere for a transmitter setting to live — the rates in `uav.ts`. So
+ * what is written below is the surface's full mechanical throw, the thirty,
+ * and the low rate is the pilot asking for less of it. It makes the elevator
+ * read enormous next to everything else here, and it is: forty per cent of the
+ * chord of a tailplane a fifth of the wing's area, on an aeroplane balanced a
+ * third of the way back. That is what an unlimited aerobatic biplane is.
+ *
+ * As with every airframe here, the mass, thrust and pitch speed describe it
+ * *as delivered*. Fit anything else in the hangar and they are worked out
+ * again from the hardware.
+ */
+export const FT_BABY_BLENDER: AircraftConfig = {
+  name: "FT Baby Blender MKR2",
+
+  mass: 0.567,
+  // Two foam board wings of about 55 g each are nearly all of it, and they are
+  // only 305 mm to the tip: a sheet of board on a skewer spar resists rolling
+  // about as much as its own weight suggests and no more. Everything heavy —
+  // the motor, the pack, four servos and the fuselage itself — is inside 40 mm
+  // of the axis, and the two wings sitting 50 mm above and below the centre of
+  // gravity add less than a tenth of the total between them.
+  inertiaRoll: 0.0044,
+  // More than roll, on an aeroplane that is twice as wide as it is long,
+  // because a fuselage is where the mass is: a motor 160 mm out in front and a
+  // tail 230 mm behind it are worth more than two light wings 305 mm out to
+  // each side.
+  inertiaPitch: 0.0077,
+  inertiaYaw: 0.011,
+
+  // Two wings, both 610 mm across and both a 160 mm chord — the kit's own
+  // plans draw the lower one as the upper one with a cutout for the fuselage.
+  // The area is the pair of them, which is what a biplane's lift is measured
+  // against.
+  wingArea: 0.1952,
+  // The span the kit is sold by, and both wings have it.
+  wingSpan: 0.61,
+  // One wing's chord rather than area over span. A biplane's area is two wings
+  // deep and its chord is not: what a pitching moment is measured against is
+  // the wing the air actually meets.
+  chord: 0.16,
+  // A little over the half-span. The aeroplane is 450 mm from the propeller
+  // disc to the elevator and 610 mm across, so the span is the wide part and
+  // the one a collision has to cover.
+  collisionRadius: 0.38,
+
+  maxThrust: 15.46,
+  propPitchSpeed: 21.21,
+  // A ten-inch blade on a 2218 is a light thing next to the triplane's twelve,
+  // and this is an aeroplane flown on the throttle rather than set to a cruise:
+  // half the repertoire on the box is a throttle change.
+  throttleRate: 1.2,
+  throttleLag: 0.11,
+
+  // The v.2 revision's "higher lift airfoil": a properly curved top over a flat
+  // bottom rather than the folded sheet the earlier swappables used, which is
+  // the one thing Flite Test say they changed about this wing. It makes lift
+  // standing still, and it is why inverted takes a handful of down elevator.
+  cl0: 0.13,
+  // Two things pulling the same way. A cell of aspect ratio 1.9 behaves like a
+  // single wing of about 2.5 rather than 1.9 — the same interference that saves
+  // the induced drag — and foam board at this Reynolds number has less slope to
+  // give than a thin aerofoil to start with. 3.0 is where they land, and it is
+  // the lowest here for the same reason the triplane's is low.
+  clAlpha: 3.0,
+  // Fourteen degrees, and it arrives slowly. The lower wing flies in the
+  // upper's downwash and does not stall with it, so the break is spread across
+  // a band nearly as wide as the triplane's — which is the "gentle stall
+  // characteristics" on the box, and what lets the aeroplane be parked at an
+  // attitude rather than dropped out of one.
+  stallAngle: 0.24,
+  stallBlend: 0.2,
+
+  // Two wings, four interplane struts, four wing tip plates, a slab fuselage
+  // 84 mm deep against a 160 mm chord, and two 2.75-inch wheels hanging under
+  // all of it. Dirtier than every wing here and dirtier than the triplane,
+  // which is three wings and eight struts — and the fuselage is why: this is a
+  // model aeroplane's whole fuselage bolted to a wing a quarter of the
+  // triplane's area. Only the smallest Skyeye is worse, and that is the same
+  // argument again with a petrol engine on the front of it.
+  cd0: 0.062,
+  // 0.76 / (pi * 1.91 * 0.78). The 0.76 is what two wings a 99 mm gap apart
+  // save over one wing carrying the same lift on the same span; the 0.78 is
+  // what a pair of rectangular foam board panels give back for not being
+  // elliptical. They nearly cancel, which is the whole trick of a biplane:
+  // a shape with an aspect ratio of 1.9 makes its lift for what an ideal wing
+  // of the same span and area would pay.
+  inducedDragFactor: 0.163,
+
+  // A deep slab fuselage with a wing above it and a wing below it, and four
+  // poster-board tip plates standing on end out at the wingtips.
+  cyBeta: -0.35,
+
+  cm0: 0.02,
+  // The centre of gravity is 80 mm behind the *top* wing's leading edge, which
+  // is how the kit quotes it and half of that wing's chord — the lower wing is
+  // set back about a third of a chord, so measured against the cell the two
+  // wings make it is a third of the way back rather than half. That is an
+  // aerobatic balance, and against a neutral point around 38% it leaves six per
+  // cent of static margin: it holds a trim hands-off and picks its own nose up
+  // out of a stall, and it is the least settled aeroplane here — level with the
+  // triplane, and for the same reason, which is a lot of wing area working
+  // against one small tailplane.
+  cmAlpha: -0.19,
+  // Twelve inches of tailplane is a fifth of the wing's area, and it is on
+  // 150 mm of arm. Enormous tail, no lever: it damps about as much as the
+  // triplane's does and a fraction of what a boom-tailed aeroplane manages,
+  // which is why this one has to be flown rather than pointed.
+  cmQ: -3.5,
+  // Forty per cent of the tail's chord, at the kit's full thirty degrees.
+  // Against a static margin this small it is an elevator with no limit worth
+  // speaking of: full high-rate stick asks the wing for three and a half times
+  // the angle it stalls at, which is not a number to fly by and is exactly what
+  // a snap roll is made of. The low rate is the same surface asked for two
+  // fifths as much, and that one lands at not quite twice the stall — the high
+  // alpha on the box, held rather than departed from.
+  cmElevator: 0.145,
+
+  // Ailerons on the top wing, at the kit's full thirty degrees. The authority
+  // is measured against two wings' area and produced by one of them, so it
+  // reads modest for what it does: against the roll damping of a 610 mm span
+  // it comes to over five hundred degrees a second, which is the snap roll on
+  // the listing and faster than any other aeroplane in the hangar —
+  // the 141 g glider is next and it is a third behind. The low rate is the
+  // same surfaces at two fifths of it.
+  clAileron: 0.09,
+  // A short span damps rolling less than a long one, and two of them damp more
+  // than one. Between the two it comes out just under a foam delta's.
+  clP: -0.5,
+  // Two flat wings and no dihedral in either. What little there is comes from
+  // the top wing sitting above the centre of gravity, and the wing below it
+  // takes most of that back.
+  clBeta: -0.03,
+
+  // A tall rudder on a short fuselage. Less weathervane than anything here
+  // with a boom on it, and about what the triplane has, which is the same
+  // aeroplane one wing further on.
+  cnBeta: 0.04,
+  cnR: -0.05,
+  // A big rudder, and on this aeroplane a primary control: the hammerhead and
+  // the snap roll on the box are both flown on it.
+  cnRudder: 0.025,
+  // Ailerons on a 610 mm span drag the rising wing back, and there is no
+  // differential in a foam board hinge to stop them.
+  cnAileron: -0.012,
+
+  minControlSpeed: 3,
+  // Foam board, hot glue, four struts and two skewers. It will be dived past
+  // its level top speed and it is not going to enjoy much more than that: past
+  // about 115 km/h the interplane struts are the only thing holding two wings
+  // in formation.
+  neverExceedSpeed: 32,
+
+  // Two wheels forward on wire legs and a tailwheel on the back, which is what
+  // the hardware pack contains: two medium landing gear wires and one thin one.
+  undercarriage: "taildragger",
+  shape: "biplane",
 } as const;
 
 /** Standard gravity, m/s^2. */

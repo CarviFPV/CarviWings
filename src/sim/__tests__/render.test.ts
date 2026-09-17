@@ -1,4 +1,5 @@
 import { assert, assertBetween, assertClose, suite } from "./harness";
+import { viewMagnification } from "../render/detailBudget";
 import { PLAYER_WING, SKYWALKER_X8 } from "../flight/config";
 import { PHYSICS_TIMESTEP, stepFlightDynamics } from "../flight/physics";
 import type { FlightEnvironment } from "../flight/physics";
@@ -10,8 +11,11 @@ import * as V from "../math/vec3";
 import {
   MESH_KIND,
   buildAircraftMesh,
+  buildBabyBlenderMesh,
   buildGliderMesh,
+  buildP38Mesh,
   buildQuadMesh,
+  buildTriplaneMesh,
   buildX8Mesh,
   meshKindFor,
 } from "../render/aircraftMesh";
@@ -461,6 +465,9 @@ export function runRenderTests(): void {
       ["the X8", buildX8Mesh()],
       ["the quadcopter", buildQuadMesh()],
       ["the glider", buildGliderMesh()],
+      ["the triplane", buildTriplaneMesh()],
+      ["the P-38", buildP38Mesh()],
+      ["the Baby Blender", buildBabyBlenderMesh()],
     ] as const) {
       let solids = 0;
       let inverted = 0;
@@ -700,5 +707,69 @@ export function runRenderTests(): void {
       1e-9,
       "and past a point it stops growing, because a gate is not a wall",
     );
+  });
+
+  suite("a zoomed view does not quietly ask for more world", () => {
+    // The ground view's own two ends: the eye wide open on a model close in,
+    // and shut down on one at the far side of the field.
+    const wide = 65;
+    const narrow = 15;
+
+    assertClose(
+      viewMagnification(wide, wide),
+      1,
+      1e-9,
+      "a view that is not narrowed magnifies nothing",
+    );
+    assertClose(
+      viewMagnification(narrow, wide),
+      Math.tan((wide / 2) * (Math.PI / 180)) /
+        Math.tan((narrow / 2) * (Math.PI / 180)),
+      1e-9,
+      "and one that is narrowed magnifies by the ratio of the half-angles",
+    );
+    assertBetween(
+      viewMagnification(narrow, wide),
+      4.8,
+      4.9,
+      "which at the ends of the ground view's zoom is about five times over",
+    );
+
+    // The renderer's threshold is relaxed by exactly this, so the tile chosen
+    // at the narrow end is the tile that was chosen at the wide one.
+    const sse = 2;
+    assertClose(
+      sse * viewMagnification(narrow, wide) * Math.tan((narrow / 2) * (Math.PI / 180)),
+      sse * Math.tan((wide / 2) * (Math.PI / 180)),
+      1e-9,
+      "threshold times half-angle is what decides a tile, and it does not move",
+    );
+
+    assert(
+      viewMagnification(40, wide) > 1 &&
+        viewMagnification(40, wide) < viewMagnification(narrow, wide),
+      "halfway out is halfway between, rather than a step at either end",
+    );
+
+    assertClose(
+      viewMagnification(90, wide),
+      1,
+      1e-9,
+      "a view wider than the plain one is never a reason to draw more world",
+    );
+    for (const bad of [0, -10, 180, 400, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assertClose(
+        viewMagnification(bad, wide),
+        1,
+        1e-9,
+        `an angle of ${bad} changes nothing`,
+      );
+      assertClose(
+        viewMagnification(narrow, bad),
+        1,
+        1e-9,
+        `and neither does a plain view of ${bad}`,
+      );
+    }
   });
 }

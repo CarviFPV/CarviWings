@@ -10,7 +10,7 @@ weather, the video link, the HUD, the settings and the desktop build.
 - [Controls](#controls) — the key table, rebinding, controllers
 - [Choosing where to fly](#choosing-where-to-fly) — the globe, search, world detail
 - [Modes](#modes) — free flight, ground view, intercept, strike, race, formation, festival
-- [The hangar](#the-hangar) — the ten aircraft, and how they fly
+- [The hangar](#the-hangar) — the thirteen aircraft, and how they fly
 - [The aircraft builder](#the-aircraft-builder) — power systems, rates, livery, saved builds
 - [Flight modes](#flight-modes) — the flight controller and what it will not do
 - [The weather system](#the-weather-system) — time, cloud, wind, rain and snow
@@ -175,13 +175,29 @@ How it leaves the ground follows the airframe:
   and lifts when you open it. There is no arming switch.
 - **An aeroplane is started on a runway** — a Skyeye stands on its own
   undercarriage with the engine idling and the stick shut, then it is throttle,
-  roll, rotate at about a fifth over the stall, and fly.
+  roll, rotate at about a fifth over the stall, and fly. The P-38 is flown off
+  the same way on its nosewheel, in about fifteen metres rather than two
+  hundred. The Triplane XL and the Baby Blender start the same way and skip the
+  rotation: both are taildraggers, so each is already sitting at twelve degrees
+  of incidence and simply leaves once it has the speed to, which on those wing
+  loadings is a dozen metres of field and under ten.
 
 The camera stands at head height a few metres behind the launch point and never
 moves; only the head turns, tracking the aircraft. The view narrows as the
 aircraft goes out and opens back up as it returns, never past what somebody
 standing there could take in at once. The camera key still cycles FPV, chase
 and the field.
+
+The narrowing magnifies the view rather than sharpening the world in it. A
+renderer picks its tile detail from how many pixels a tile's error covers, so a
+field of view closing from sixty-five degrees to fifteen asks for about five
+times the tiles across the whole view — not around the model the eye closed
+onto, but everywhere, fetched over the top of a flight in progress, and asked
+for again every time the model goes out. So the detail threshold is relaxed by
+exactly what the zoom magnified, and the tiles stay the ones the wide view was
+drawn at: the far hillside reads softer the further the eye is closed down, and
+the frames stay where they were. Nobody standing on a field resolves more of the
+next valley by squinting at their wing.
 
 Head height is measured off the ground the launch is actually standing on
 rather than off the single elevation reading under it. Two things move it. The
@@ -197,8 +213,15 @@ the canopy, and the wing waiting in the launcher's hand is at head height over
 the same surface.
 
 That second surface is measured out of the scene itself, once before anybody is
-standing on it and again every second while the view is up, because a canopy
-resolves as its tiles do. The pilot and the launcher are measured separately —
+standing on it and then again while the view is up, because a canopy resolves as
+its tiles do. It is a settling process rather than a poll: each round waits
+longer than the one before it, and once consecutive rounds agree the measuring
+stops. Nobody on a field moves — the stand and the launch point are the two
+fixed things in the simulator — so a reading that has stopped changing has
+nothing left to tell anybody, and going on asking for it costs a scene pick per
+column for the rest of the flight. A replacement airframe going back into the
+launcher's hand starts it looking again. The pilot and the launcher are
+measured separately —
 one can be in a clearing and the other under the trees, and a stand lifted onto
 something it is standing *beside* rather than on is its own kind of wrong. Each
 reading has to be corroborated before it is believed: a scene sample whose ray
@@ -415,13 +438,16 @@ personal bests are derived from that list every time they are shown.
 
 ## The hangar
 
-Ten aircraft, each flyable exactly as delivered:
+Thirteen aircraft, each flyable exactly as delivered:
 
 | Aircraft | What it is |
 | --- | --- |
 | **Interceptor wing** | 1.4 m foam delta, 2.2 kg, 95 km/h |
 | **Skywalker X8** | 2.1 m survey wing, 2.7 kg, 70 km/h, an hour of it |
 | **Foamie Glider 480** | 480 mm foam glider, 141 g, 94 km/h, ten minutes of it |
+| **FT Triplane XL** | 1.23 m foam triplane, 1.76 kg, 56 km/h, and it lands anywhere |
+| **FT Master Series P-38** | 1.46 m foam twin, 1.75 kg, 89 km/h, and two of everything |
+| **FT Baby Blender MKR2** | 0.61 m foam biplane, 567 g, 64 km/h, and it goes straight up |
 | **CarviFPV CA35-160** | 160 mm quadcopter, 293 g, 130 km/h, six minutes of it |
 | **X10 Interceptor** | 560 mm rocket quad, 450 g, 364 km/h, ten minutes of it |
 | **Airmobi Skyeye 2600** | 2.6 m petrol UAV, 15 kg, 93 km/h, two and a half hours |
@@ -442,6 +468,111 @@ holds a heading hands-off and flies out of a stall by itself. With the motors
 shut down it glides, which no other aircraft here does. At 141 g, a gust the
 survey wing rides through will put it on its back.
 
+**The triplane.** The FT Triplane XL is Flite Test's Fokker Dr.I in laser-cut
+foam board: 48.5 inches across the top wing, 1.76 kg with the FT 2814 and a
+3300 mAh 3S in it, three unstaggered wings of a 200 mm chord on cabane and
+interplane struts, and two wheels and a skid under it.
+
+Three wings are 0.66 m² of area on a 1.23 m span — more wing than the 1.4 m
+interceptor has, on a shorter span and under three quarters of its weight. That
+is the lightest wing loading in the hangar, and everything about the aeroplane
+follows from it: it stalls at 24 km/h, it is off the ground in about a dozen
+metres, and it lands in as few. It also makes it the slowest thing here flat
+out — the aspect ratio of the *whole aeroplane* is 2.3 and there is more strut
+on it than on the rest of the fleet together, so 56 km/h is where the drag
+catches the propeller.
+
+What it is not is as wasteful as an aspect ratio of 2.3 sounds. Three wings one
+above another shed less vortex between them than a single wing carrying the same
+lift on the same span would, so the induced drag comes out around seventy per
+cent of that wing's — which is why anybody built one. And three wings' worth of
+area works against one small tailplane, so it is the least statically stable
+airframe here, balanced a third of the chord back and answering the elevator
+like it: full back stick asks for about twenty-five degrees of incidence, which
+is nearly twice the stall. It rolls at about a hundred degrees a second, which
+is a scale roll rate and not a fault — the ailerons are on the top wing only,
+and this aeroplane's agility is in pitch and yaw. Flite Test's own set-up sheet
+mixes 60% of the aileron into the rudder, because big ailerons on a short span
+drag the rising wing backwards, and the adverse yaw here is three times any
+other airframe's.
+
+It is also the only taildragger. A Skyeye is a tricycle and has to be rotated
+off its nosewheel; this one sits back on its skid with the wing already at
+twelve degrees, so the elevator's job on the ground is the other direction —
+stick forward lifts the tail. The camera is in the cockpit, looking over the
+middle wing and under the top one, which is exactly the view the aeroplane was
+built around and exactly as obstructed.
+
+**The twin.** The FT Master Series P-38 Lightning is Flite Test's Lockheed P-38
+in water-resistant foam board: 57.5 inches across, the centre of gravity 45 mm
+behind the leading edge where the kit puts it, two FT Radial 2218 KV1180 motors
+on a 2300 mAh 4S, and 1.75 kg all up. It is the only aeroplane here with more
+than one motor on it, and the only conventional fighter — a taper-winged
+aeroplane on a warbird's loading that is flown at a speed and turned, rather
+than parked at an attitude the way the triplane beside it is.
+
+Twenty-one ounces to the square foot is two and a half times the triplane's, so
+it stalls at 34 km/h rather than 24 and it wants a circuit flown round it. What
+it gets for that is a wing with an aspect ratio near eight — the longest and
+thinnest here bar the Skyeyes — which pays less for its lift than anything else
+in the hangar and cruises and tops out near 90 km/h.
+
+The booms are most of the rest of it. Two fins on half a metre of arm each give
+it the strongest weathervane and the heaviest pitch damping of any airframe
+here, so it tracks through rough air the way nothing else does; and they put a
+quarter of the aeroplane's mass out at a fifth of the span with a motor on each
+front corner and a tail on each back one, which is why it resists pitching more
+than rolling where every flying wing here is the other way round. It pays for
+the tracking in roll: about two hundred degrees a second, half a foam delta's,
+which is the airframe rather than the tune and is the one thing the full-size
+aeroplane was ever criticised for.
+
+It is a nosewheel aircraft, the way the real one was the first fighter to be.
+Left alone at full throttle it will not leave — three degrees on the gear does
+not carry this wing loading until it is nearly at its top speed — so it is
+rotated off in about fifteen metres, which is a take-off rather than a heave.
+The two propellers counter-rotate, as a Lightning's do and as the
+opposite-handed blades in the box make them, and the camera sits in the canopy
+ahead of the wing with the best view out of anything here.
+
+**The biplane.** The FT Baby Blender MKR2 is Flite Test's four-channel biplane
+in laser-cut foam board, the fourth aeroplane of the Swappable Series: 24 inches
+across, 567 g with Power Pack C in the pod and an 1800 mAh 3S aboard, two
+610 mm wings of a 160 mm chord staggered 48 mm apart and 99 mm one above the
+other, and two 2.75-inch wheels and a tailwheel under it. The centre of gravity
+is 80 mm behind the *top* wing's leading edge, which is how the kit quotes it
+and why: on a staggered cell the two leading edges are not in the same place,
+so one of them has to be named.
+
+It is the smallest aeroplane here and by a distance the most over-powered.
+Power Pack C on a 397 g airframe is nearly three times the aircraft's weight in
+static thrust — more than any other aeroplane in the hangar, half again what
+the triplane has — and a 10×4.5 on three cells screws forward at 76 km/h, so
+none of it goes into speed. The whole envelope is 27 to 64 km/h and fits inside
+a park; what all that thrust buys is the vertical. It goes up until you stop
+asking, and it hangs on the propeller at an attitude the flying wings fall out
+of.
+
+Two wings a gap apart are not one wing of twice the area. The cell's aspect
+ratio is 1.9, the stubbiest shape in the simulator, and a wing that short makes
+its lift expensively — except that two wings stacked shed about a quarter less
+vortex between them than a single wing carrying the same lift on the same span
+would, which very nearly cancels what a pair of rectangular foam panels lose
+for not being elliptical. That is the whole trick of a biplane, and it is why
+this one is worth building.
+
+It rolls faster than anything else here that is not a multirotor: thirty degrees
+of aileron on a 610 mm span is over five hundred degrees a second, a third as
+much again as the 141 g glider. The kit gives two rates — twelve degrees and
+thirty, with 30% expo — and both are in the aeroplane: the coefficients carry
+the full throw and the delivered rates ask for about the low one. Against a
+tailplane a fifth of the wing's area on 150 mm of arm and a balance a third of
+the chord back, it is the least statically stable airframe in the hangar,
+level with the triplane. It is the second taildragger, sits at twelve degrees
+before it has moved, and is off the ground in under ten metres. The camera goes
+on the decking between the wings looking out through the gap, because a
+biplane's cockpit looks straight into the underside of the top wing.
+
 **The multirotors.** Both make no lift, have no stall and no glide, hover, and
 are steered by differential rotor thrust rather than by air — so they answer
 the same hovering as flat out, and not at all on a flat pack. The CA35-160 is
@@ -457,6 +588,27 @@ axis about as readily as it rolls, empties its pack in well under a minute at
 full throttle, and — with fins — puts its nose down and arrives like a dart
 when the thrust is gone.
 
+Two things follow from being the only tailsitter here, and both are why it does
+not fly like a quadcopter:
+
+- **It weathervanes, and with the motors running.** A quadcopter's drag acts
+  four millimetres under its weight and four turning discs hold that out
+  entirely; the X10's acts six centimetres under it, on a tail, at three times
+  the airspeed, and no rotor disc absorbs *that*. So the nose sits on the flight
+  path rather than crabbing off it, the fins damp the airframe harder the faster
+  it goes, and a turn costs speed instead of throwing it sideways through the
+  air.
+- **Its sticks are rotated into the frame the pilot is looking down.** The
+  camera is in the nose and on this airframe the nose is the rotor axis, so what
+  banks the horizon is the aircraft spinning about its own length and what
+  swings the nose across the sky is the aircraft rolling. Left raw, the roll
+  stick would skid it sideways and the rudder would bank the picture backwards.
+  The pair is turned by the camera's mount angle before the mixer sees it — the
+  number Betaflight calls `fpv_angle_mix` — so it is flown the way it looks:
+  bank, then pull, and it comes round like an aeroplane. Angle mode is the
+  exception and is left alone, because it is holding an attitude against the
+  earth and the earth does not care where the camera is pointing.
+
 **The aeroplanes.** The five Airmobi Skyeye are one airframe at five sizes,
 each named for its span in millimetres: a carbon fuselage pod with the payload
 in the nose, a high tapered wing, twin tailbooms, a pusher between them and a
@@ -468,10 +620,11 @@ fixed tricycle undercarriage. Two things separate them from everything else:
   by flying speed: an idling propeller has nothing left above a quarter of its
   pitch speed.
 - **Wheels.** They roll at a tenth of a foam belly's friction, so an aeroplane
-  can accelerate to flying speed under its own power. They hold the airframe
-  nose-up at a twelfth of the span so the elevator can rotate it off, and they
-  will take an arrival at 160 km/h that a belly comes apart at — while being
-  far less forgiving of landing banked or crabbed.
+  can accelerate to flying speed under its own power. A tricycle undercarriage
+  holds the airframe nose-up at a twelfth of the span so the elevator can rotate
+  it off; a taildragger's holds it at twelve degrees and needs no rotation at
+  all. Either will take an arrival at 160 km/h that a belly comes apart at —
+  while being far less forgiving of landing banked or crabbed.
 
 They carry hours rather than minutes: the 3600 has 11.5 litres built into the
 fuselage and stays up four and a half hours on it.
@@ -521,6 +674,27 @@ speed the flight model integrates, not a label.
   the same motor on a lower KV for endurance, a higher-pitch propeller, and a
   3S conversion that takes it past 105 km/h. Packs run 450 mAh to a pair of
   18650s that keep it up the better part of an hour.
+- The Triplane XL takes one motor and four propellers, which is what a
+  barnstormer's catalogue is: the kit's FT 2814 on a 12×4.5 for 3S, a big slow
+  13×4 that gives up the top end and buys half again the flight time, an 11×5.5
+  that trades pull for speed, and a four-cell conversion on a 12×6 that is the
+  fastest of them. Packs run 2200 to 5000 mAh in three cells, plus two in four.
+- The P-38 takes four, and every one of them is two of it: the kit's Power Pack
+  C Twin on the nine-inch blade its motors are specified for on four cells, the
+  ten-inch blades that come in the box flown on the three cells they are meant
+  for, a 9×6 that is the fastest of the four and gives up most of the flight
+  time for it, and a pair of 2814s that pull hardest without being quickest.
+  Packs run 2200 to 3300 mAh in three cells and 2300 to 4000 in four. Quoted
+  controller ratings are both speed controllers together, because that is what
+  is bolted into the aeroplane.
+- The Baby Blender takes four, and the swappable pod means all of them come
+  out with the motor still bolted to them: the kit's Power Pack C on the 10×4.5
+  in the box, the same motor on the 10×4.7 its own specification asks for,
+  Power Pack B one size down — half the thrust and half again the flight time,
+  which turns the aeroplane back into the trainer the description starts by
+  describing — and a four-cell conversion on a nine-inch blade, which is the
+  only way this airframe goes anywhere quickly. Packs run 1300 to 2200 mAh in
+  three cells, plus two in four.
 - The CA35-160 takes four: the stock 3.5×2.5 tri-blades on 4S, a higher-pitch
   propeller for another 15 km/h, and the 6S racing conversion. Packs run from a
   450 mAh sprint pack good for three minutes, through the delivered 750 and a
@@ -591,7 +765,7 @@ flat-shaded onto a plain 2D canvas. Drag it to turn the aircraft round.
 
 ### As delivered, and saved builds
 
-**As delivered** lists all ten aircraft under their own names, each with the
+**As delivered** lists all thirteen aircraft under their own names, each with the
 combo, pack, rates and colours it ships with. These are worked out from the
 airframe rather than stored, so they are always all there and cannot be
 renamed, written over or deleted. Fitting one is how an airframe is put back
@@ -1091,6 +1265,15 @@ the stutters stayed, because the stutters were never the far side of the valley
 being sharp. They were the world arriving through one main thread in the seconds
 somebody was flying.
 
+There is one thing that moves, and it is not a governor: the RC ground view's
+eye, which is the only camera in the simulator that zooms. A preset's
+screen-space error is a promise about *pixels*, so a narrowing view honours it
+by fetching finer tiles — five times over at the far end of that zoom. The
+threshold is relaxed by the magnification so the tiles stay where the wide view
+put them. It reads nothing off the frame rate, it is the same number for the
+same field of view every time, and no other camera moves it: every other view
+holds one angle for the whole flight, the pilot's own FPV setting included.
+
 **So loading is deliberately front-loaded instead.** Nothing is flown until the
 world is there:
 
@@ -1200,14 +1383,16 @@ re-anchored as the aircraft ranges.
 
 ### Testing
 
-`npm run test:sim` runs 3839 checks with no test-framework dependency. It
+`npm run test:sim` runs 4474 checks with no test-framework dependency. It
 covers the maths and geodesy (attitude quaternion round-trips, WGS84
 conversions against reference values, ENU round-trips including tangent-plane
 curvature at 50 km, coordinate parsing), the flight models (fixed wing,
-multirotor, glider, rocket and the petrol aeroplanes), power systems, launch,
-landing, damage and explosions, terrain sampling, the AI, every mission mode,
-the weather model and METAR decoder, the video link, the HUD and OSD layout,
-controllers and key bindings, audio and music, liveries, builds and pilots.
+multirotor, glider, rocket, triplane, twin, biplane and the petrol
+aeroplanes), power
+systems, launch, landing, damage and explosions, terrain sampling, the AI,
+every mission mode, the weather model and METAR decoder, the video link, the
+HUD and OSD layout, controllers and key bindings, audio and music, liveries,
+builds and pilots.
 
 Run `npm run typecheck` and `npm run test:sim` before considering a change to
 `src/sim/**` complete.

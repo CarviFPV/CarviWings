@@ -35,6 +35,24 @@
  *     nothing is absorbing it any more, so a dead quadcopter rolls off and goes
  *     over rather than falling the way it was left.
  *
+ * All five of those are a quadcopter, and one airframe here is not one. A body
+ * built along the rotor axis with fins on the tail is flown by these same
+ * equations, but two of the numbers they are handed change what comes out:
+ *
+ *   - **it weathervanes.** The drag couple that is a few millimetres of build
+ *     error on a quadcopter is a tail on a six-centimetre arm here, at three
+ *     times the airspeed. A rotor disc holds out what a rotor disc is worth and
+ *     that is nowhere near it, so the couple reaches the airframe with the
+ *     motors running and points the nose at the airflow — which is why a finned
+ *     body flies where it is pointing instead of crabbing through its turns,
+ *     and why it is damped by the air rather than only by its rotors.
+ *   - **and the pilot is not looking down its roll axis.** The camera is on the
+ *     nose of a body whose nose *is* the rotor axis, so what banks the picture
+ *     is the airframe's yaw and what swings the picture is its roll. That is a
+ *     flight-controller problem rather than an aerodynamic one and it is solved
+ *     where it belongs, in `flightController.ts`, out of the same `stickMixDeg`
+ *     a Betaflight pilot sets as `fpv_angle_mix`.
+ *
  * Runs in the same local ENU frame, at the same fixed timestep, and shares the
  * powerplant, the pack and the damage model with the wings. Framework-agnostic
  * and free of I/O.
@@ -68,6 +86,22 @@ import type { FlightEnvironment } from "./physics";
 
 /** Residual airframe damping so a tumbling wreck eventually settles. */
 const RESIDUAL_ANGULAR_DAMPING = 0.35;
+
+/**
+ * Couple four turning rotors hold out on their own, as a fraction of the
+ * thrust they are making times the arm they are on.
+ *
+ * A disc meeting the air at an angle pushes back on it, and that is what
+ * absorbs the drag couple of an ordinary multirotor without the pilot ever
+ * knowing it is there: a few millimetres of build error at thirty metres a
+ * second is a hundredth of a newton metre, and four discs carrying the
+ * aircraft's own weight swallow it whole. What they cannot swallow is a tail.
+ * A fin set on a six-centimetre arm at ninety metres a second is two orders of
+ * magnitude more than that, and a rotor disc has nothing to say about it — so
+ * the couple that reaches the airframe is whatever is left over, which on a
+ * quadcopter is nothing and on a finned body is nearly all of it.
+ */
+const ROTOR_DISC_COUPLE = 0.05;
 
 // Scratch vectors — the step function must not allocate.
 const _airVelocity = V.vec3();
@@ -450,11 +484,22 @@ export function stepRotorDynamics(
   const pitchRate = -state.angularVelocity.y;
   const yawRate = -state.angularVelocity.z;
 
+  // A tail resists being rotated, and the faster the air is arriving the
+  // harder it resists: a fin a body's length behind the weight meets the air
+  // at the rotation rate times that length, so what it gives back climbs with
+  // the airspeed where the rotors' own damping sits still. Zero on anything
+  // without a tail, which is every ordinary multirotor. It is not control and
+  // it does not need a pilot or a pack — a dead finned body is damped in
+  // exactly the same way, which is half of why it arrives nose-first.
+  const finDamping = rotor.finDamping * airspeed * (rho / SEA_LEVEL_DENSITY);
+
   const rollMoment =
     headroom * rotor.rollAuthority * rollCmd -
-    rotor.rollDamping * rollRate +
+    (rotor.rollDamping + finDamping) * rollRate +
     damage.rollBias * headroom;
-  const pitchMoment = headroom * rotor.pitchAuthority * pitchCmd - rotor.pitchDamping * pitchRate;
+  const pitchMoment =
+    headroom * rotor.pitchAuthority * pitchCmd -
+    (rotor.pitchDamping + finDamping) * pitchRate;
   const yawMoment =
     headroom * rotor.yawAuthority * yawCmd -
     rotor.yawDamping * yawRate +
@@ -463,26 +508,36 @@ export function stepRotorDynamics(
   angularVelocityFromCommands(_momentBody, rollMoment, pitchMoment, yawMoment);
 
   // --- The couple the drag makes on its own ---------------------------------
-  // The air does not push through the centre of gravity: it pushes a few
-  // millimetres under it and a hair to one side, so the drag on the airframe is
-  // a torque about it as well as a force, `r x F` and nothing more. Because the
-  // push is below the weight it is the wrong way round to settle anything — the
-  // aircraft leans, leaning puts more of the airframe across the airflow, and
-  // that pushes it further over.
+  // The air does not push through the centre of gravity, so the drag on the
+  // airframe is a torque about it as well as a force, `r x F` and nothing
+  // more. What `r` is decides what the torque does, and the two airframes here
+  // are opposite cases of it.
   //
-  // What holds that out is the rotors, and not through the mixer: four discs
-  // turning above the centre of gravity, and a turning disc meeting the air at
-  // an angle pushes back on it. So the couple that reaches the airframe is what
-  // is left once the rotors have taken their share, and they take all of it
-  // while they are making the aircraft's own weight — which is every second of
-  // ordinary flight, and why none of this is felt with a pack in the aircraft.
-  // Let the thrust fall away and it arrives in full: which way it goes is
-  // decided by how this one was built and by which way the air is arriving, the
-  // wind included, and that is why a dying quadcopter tips off and tumbles
-  // instead of dropping in the attitude the pilot last left it in.
-  const held = clamp(thrust / (config.mass * GRAVITY), 0, 1);
+  // On a quadcopter it is a few millimetres: the pack is on the top plate and
+  // the arms, props and camera hang under it, so the air pushes below the
+  // weight and the couple is the wrong way round to settle anything — the
+  // aircraft leans, leaning puts more of it across the airflow, and that pushes
+  // it further over. On a finned body it is the tail, an arm fifteen times as
+  // long, and it means the opposite: the couple always swings the end the air
+  // is arriving at upwind, and on an airframe that flies nose-first that points
+  // the nose at its own flight path.
+  //
+  // What holds any of it out is the rotors, and not through the mixer: four
+  // discs turning above the centre of gravity, and a turning disc meeting the
+  // air at an angle pushes back on it. But a disc can only hold out what a disc
+  // is worth, and that is the whole of the difference. A quadcopter's couple is
+  // far inside it, which is why none of it is felt with a pack in the aircraft
+  // and why a dying one tips off and tumbles the moment the thrust goes. A
+  // finned body's is two orders of magnitude outside it, so nearly all of it
+  // reaches the airframe with the motors running — that is what a weathercock
+  // is, and it is why this one flies where it is pointing instead of crabbing
+  // through its turns.
+  const discCouple = thrust * rotor.armLength * ROTOR_DISC_COUPLE;
   V.cross(_dragCouple, state.dragCentre, _bodyDrag);
-  V.addScaled(_momentBody, _momentBody, _dragCouple, 1 - held);
+  const coupleSize = V.length(_dragCouple);
+  if (coupleSize > discCouple) {
+    V.addScaled(_momentBody, _momentBody, _dragCouple, 1 - discCouple / coupleSize);
+  }
 
   // The pack pays for the thrust that was actually made, at the speed the air
   // is arriving down the rotor axis — which for a quadcopter hanging in a
