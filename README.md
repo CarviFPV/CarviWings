@@ -208,3 +208,16 @@ CarviWings is sponsored by **[CarviLabs](https://carvilabs.com)**.
 
 Next.js 16 (App Router) · React 19 · TypeScript (strict) · Tailwind CSS 4 ·
 CesiumJS · Zustand · Rapier
+
+---
+
+## Contributing and licence
+
+Bug reports, fixes and new aircraft are welcome — [CONTRIBUTING.md](CONTRIBUTING.md)
+has how to report an issue, set up a checkout and open a pull request, and
+everyone taking part is asked to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+CarviWings is free software, released under the
+[GNU General Public License v3.0](LICENSE). You may run, study, share and
+modify it; anything you distribute that is built on it has to be released under
+the same licence.

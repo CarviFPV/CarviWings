@@ -4,6 +4,7 @@ version = "0.0.0"
 description = "An FPV interception simulator flown over the real Earth."
 authors = ["CarviFPV"]
 repository = "https://github.com/CarviFPV/CarviWings"
+license = "GPL-3.0-only"
 edition = "2021"
 rust-version = "1.77.2"
 
