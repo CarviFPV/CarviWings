@@ -316,6 +316,19 @@ export interface AircraftConfig {
    * level.
    */
   readonly undercarriage?: "tricycle" | "taildragger";
+  /**
+   * How far the undercarriage holds the reference point off the ground at
+   * rest, metres. Left out, it is worked out from the span.
+   *
+   * A fraction of the span is right for every aeroplane that got one, because
+   * on each of them the centre of gravity sits about where the fraction
+   * assumes: a tricycle's on a wing a twelfth of the span up, a triplane's and
+   * a biplane's in the middle of a stack of wings. A low-winged aeroplane breaks
+   * that. Its centre of gravity is on the bottom of the fuselage with the
+   * undercarriage directly beneath it, so the span says nothing about how far
+   * up it is — a fifth of a C-47's span would stand it on stilts.
+   */
+  readonly gearHeight?: number;
 
   // --- Looks ----------------------------------------------------------------
   /**
@@ -338,10 +351,16 @@ export interface AircraftConfig {
    * which no set of coefficients is ever going to imply. `p38` is the same
    * argument one step further: two booms with a motor on the front of each and
    * a gondola slung between them is an aeroplane the flight model flies as one
-   * wing and a viewer would never mistake for one. And `biplane` is the pair
+   * wing and a viewer would never mistake for one. `biplane` is the pair
    * of them: two wings, four struts and a tailwheel, which the coefficients
    * describe as one wing because that is how a wing cell works and which a
-   * viewer would never accept drawn as one.
+   * viewer would never accept drawn as one. And `c47` is a transport: a round
+   * fuselage a metre long sitting on a low wing, an engine nacelle hung under
+   * each side of it, and a tailwheel — nothing in a set of coefficients says
+   * that either. `jenny` is the other biplane, and it is not the first one
+   * drawn bigger: a long upper wing overhanging a short lower one, two bays of
+   * struts and wire a side, a metre of fuselage with two cockpits in it and a
+   * radiator on the nose, and a skid on the back.
    */
   readonly shape?:
     | "glider"
@@ -350,7 +369,9 @@ export interface AircraftConfig {
     | "skyeye"
     | "triplane"
     | "p38"
-    | "biplane";
+    | "biplane"
+    | "c47"
+    | "jenny";
 }
 
 export const PLAYER_WING: AircraftConfig = {
@@ -1335,11 +1356,12 @@ export const SKYEYE_6000: AircraftConfig = {
  * span is 0.66 m^2 of wing under an aeroplane that weighs 1.76 kg — more wing
  * than the 1.4 m interceptor has, on a shorter span, under three quarters of
  * its weight. That is nine ounces to the square foot, the lightest wing loading
- * in the hangar, and the whole of why this thing flies at a walking pace and is
- * off the ground in a dozen metres. It is paid for in drag: the aspect ratio
- * *of the whole aeroplane* is 2.3, there is more strut and cabane on it than
- * the rest of the hangar has put together, and `cd0` is higher than any wing
- * here. It does 56 km/h flat out and the motor is not what is stopping it.
+ * in the hangar bar the Jenny XL's, and the whole of why this thing flies at a
+ * walking pace and is off the ground in a dozen metres. It is paid for in drag:
+ * the aspect ratio *of the whole aeroplane* is 2.3, there is more strut and
+ * cabane on it than the rest of the hangar has put together, and `cd0` is
+ * higher than any wing here. It does 56 km/h flat out and the motor is not
+ * what is stopping it.
  *
  * What it is not is as inefficient as an aspect ratio of 2.3 sounds. Three
  * wings one above another are a crude box: each flies in the others' field and
@@ -1667,11 +1689,12 @@ export const FT_P38_LIGHTNING: AircraftConfig = {
  *
  * Two wings is the whole aeroplane. A 610 mm span with a 160 mm chord on each
  * of them is 0.195 m^2 under 567 g, which is nine and a half ounces to the
- * square foot — the second lightest loading here, and only the triplane beats
- * it. That is what "gentle stall characteristics" on the box is: it stalls at
- * 27 km/h. What it costs is the same thing every multiplane pays. The aspect
- * ratio of the cell is 1.9, the lowest of anything in this simulator, and a
- * wing that stubby makes its lift expensively however many of them there are.
+ * square foot — the third lightest loading here, behind only the Jenny XL and
+ * the triplane. That is what "gentle stall characteristics" on the box is: it
+ * stalls at 27 km/h. What it costs is the same thing every multiplane pays.
+ * The aspect ratio of the cell is 1.9, the lowest of anything in this
+ * simulator, and a wing that stubby makes its lift expensively however many of
+ * them there are.
  *
  * Not as expensively as 1.9 sounds, though, and for the reason biplanes were
  * built at all: two wings a gap apart shed less vortex between them than one
@@ -1858,6 +1881,358 @@ export const FT_BABY_BLENDER: AircraftConfig = {
   // the hardware pack contains: two medium landing gear wires and one thin one.
   undercarriage: "taildragger",
   shape: "biplane",
+} as const;
+
+/**
+ * The FT Master Series C-47 60in: a transport, and flown like one.
+ *
+ * Flite Test's Douglas Skytrain in laser-cut water-resistant foam board, the
+ * 60-inch one of the three sizes they cut it in. The published numbers are the
+ * kit's: 60 inches across, the centre of gravity 2.5 inches behind the wing's
+ * leading edge, the Power Pack B v.2 Twin — two FT Radial 2212 KV1050 motors,
+ * two 25 A controllers and the 9x4.5 blades that come with them — and a 2200
+ * mAh 3S under the hatch, with four cells for when the scale flying has to
+ * stop.
+ *
+ * What Flite Test do not publish is what one weighs, so it is built up rather
+ * than quoted, the way the P-38's is: the board, the plywood and the skewers in
+ * the kit, the landing gear wire and three wheels, four nine-gram servos and
+ * the extensions the nacelles need, a receiver, and the FPV camera and
+ * transmitter that make it one of these — then the two motors, their
+ * controllers and the pack. It comes out at 1.51 kg, which on 0.28 m^2 of wing
+ * is eighteen ounces to the square foot: under the P-38's warbird loading and
+ * nearly twice the biplane's, so it stalls at about 30 km/h and tops out under
+ * 60 on the three cells it is meant to be flown on.
+ *
+ * The wing is the full-size aeroplane's shape, and the longest and slimmest
+ * here bar the Skyeyes. A constant-chord centre section out past the nacelles,
+ * then outer panels with the leading edge swept back over a straight trailing
+ * edge and five degrees of dihedral in them — the Douglas planform — which
+ * comes to an aspect ratio of 8.3. That pays less for its lift than anything
+ * else on foam, the P-38 included, whose wing is a little shorter on nearly
+ * the same area.
+ *
+ * The centre of gravity is the kit's 63.5 mm behind the root's leading edge,
+ * and on this planform that is further forward than it sounds. The outer
+ * panels sweep back, so the mean chord's leading edge sits 30 mm behind the
+ * root's, and the balance point ends up under a fifth of the way along it. A
+ * tailplane on 55 cm of arm puts the neutral point near 38%, so the static
+ * margin is about a fifth of the chord: the most of any aeroplane here, which
+ * is what a scale twin flown by somebody who wants it back looks like. It
+ * holds a trim hands off, it comes out of an upset by itself, and full back
+ * stick is a long way short of a barnstormer's.
+ *
+ * Two motors, and the same arithmetic as the P-38: `maxThrust` is both of
+ * them, there is no asymmetric case, and what the pair are worth is a little
+ * over the aeroplane's own weight in static thrust on three cells. That is a
+ * scale twin's margin — enough to take off and climb, not enough to hang on
+ * the propellers. Four cells nearly double it, which is the "power out of
+ * danger" on the box.
+ *
+ * It is a taildragger, as the Skytrain was, and the attitude it sits in is the
+ * ground model's twelve degrees: the full-size aeroplane rests on its tailwheel
+ * at eleven and a half. The kit says it wants "lots of runway", and it does.
+ * Nothing in here knows how a taildragger is flown off, and it does it anyway:
+ * opened up and left alone, the tailplane lifts the tail as the speed comes,
+ * the wing goes back to something near level, and the aeroplane flies itself
+ * off at a little under 55 km/h about fifty metres down the strip — four
+ * times the run of the other two taildraggers, which leave at the attitude
+ * they are parked in.
+ *
+ * As with every airframe here, the mass, thrust and pitch speed describe it *as
+ * delivered*. Fit anything else in the hangar and they are worked out again
+ * from the hardware.
+ */
+export const FT_C47: AircraftConfig = {
+  name: "FT Master Series C-47",
+
+  mass: 1.511,
+  // A long foam board wing and two motors on it a fifth of the span out, with
+  // a fuselage that weighs less than it looks. Less than the P-38, whose booms
+  // put a quarter of the aeroplane out at the motors, and well over anything
+  // with a wing as short as the triplane's.
+  inertiaRoll: 0.11,
+  // A metre of fuselage with the pack in the nose and the tail at the far end
+  // of it. A shade under roll, which is the other way round from the P-38:
+  // a C-47 is a long aeroplane, but it is longer still across.
+  inertiaPitch: 0.1,
+  inertiaYaw: 0.2,
+
+  // 60 inches across, and the loft is drawn to it: a constant 220 mm chord
+  // out past the nacelles, tapering to 105 mm at the tip.
+  wingArea: 0.28,
+  wingSpan: 1.524,
+  // The mean aerodynamic chord, which is what a pitching moment is measured
+  // against. The kit's centre of gravity is quoted from the root.
+  chord: 0.19,
+  // A little over the half-span. The fuselage is a metre long and the span is
+  // a metre and a half, so the span is what a collision has to cover.
+  collisionRadius: 0.8,
+
+  maxThrust: 16.93,
+  propPitchSpeed: 18.87,
+  // Two motors on one stick, throttled the way a transport is: smoothly, and
+  // not very often. Nine-inch blades on 2212s answer in about a seventh of a
+  // second.
+  throttleRate: 0.8,
+  throttleLag: 0.14,
+
+  // A built-up foam board section, curved on top and nearly flat beneath, the
+  // same construction as the P-38's and for the same reason: a scale aeroplane
+  // flown at a scale speed has to make its lift slowly.
+  cl0: 0.12,
+  // An aspect ratio of 8.3 is worth a little over 5 per radian on a thin
+  // section, and foam board at this Reynolds number gives some of it back.
+  clAlpha: 4.8,
+  // Thirteen degrees, and a gentle arrival. The tips go first on a tapered
+  // wing, but the long constant-chord centre section is still flying when
+  // they do, so the break is spread wider than the P-38's.
+  stallAngle: 0.23,
+  stallBlend: 0.15,
+
+  // A round fuselage a metre long, two nacelles with the mains hanging under
+  // them and a tailwheel. Dirtier than the P-38, which has a gondola where
+  // this has a fuselage, and cleaner than anything with struts.
+  cd0: 0.05,
+  // 1 / (pi * 8.3 * 0.8). The span, again, is the whole of it.
+  inducedDragFactor: 0.048,
+
+  // A deep, slab-sided round fuselage and two nacelles: a lot of side.
+  cyBeta: -0.4,
+
+  // Trimmed for a scale cruise. A centre of gravity this far forward is
+  // carried on up-elevator, and this is that trim: hands off, the aeroplane
+  // settles at about four degrees of incidence and 50 km/h, which is the
+  // "medium" flying speed on the listing and a little over one and a half
+  // times the stall.
+  cm0: 0.065,
+  // The static margin, times the lift-curve slope: twenty per cent of the
+  // chord between a centre of gravity at 18% and a neutral point at 38%.
+  cmAlpha: -0.96,
+  // The tailplane is on 55 cm of arm, which damps about as hard as the
+  // P-38's booms do.
+  cmQ: -18,
+  // Full back stick asks for about eighteen degrees of incidence against that
+  // margin and that trim — a third past the stall, which is a transport's
+  // elevator rather than an aerobat's.
+  cmElevator: 0.24,
+
+  // Long ailerons on the outer panels, out to the tip. Against the roll
+  // damping of a wing this long they come to about a hundred and thirty
+  // degrees a second at cruise — the survey wing's rate, well under the
+  // P-38's — which is the "wide, scale turns" the kit asks for.
+  clAileron: 0.062,
+  // A long wing resists rolling more than a stubby one, at the same rate.
+  clP: -0.6,
+  // Five degrees of dihedral on the outer panels, more than any of the other
+  // Flite Test aeroplanes here have. Let go of the stick in a turn and it
+  // rolls itself back out, as the full-size aeroplane does.
+  clBeta: -0.08,
+
+  // One big fin, with the dorsal fillet the DC-3 grew in front of it, on
+  // 55 cm of arm. Less than the P-38's two fins or a Skyeye's, more than
+  // anything else on foam.
+  cnBeta: 0.07,
+  cnR: -0.1,
+  cnRudder: 0.04,
+  // Long ailerons on a long wing drag the rising one back hard. A C-47 is
+  // flown with the feet in a turn, and so is this.
+  cnAileron: -0.014,
+
+  minControlSpeed: 4,
+  // Foam board with a plywood spar box through the centre section. A big
+  // airframe for its board, and past about 145 km/h the wing is doing
+  // something it was not folded for.
+  neverExceedSpeed: 40,
+
+  // Two mains on wire legs under the nacelles and a tailwheel under the fin,
+  // which is what the kit contains and what the Skytrain had.
+  undercarriage: "taildragger",
+  // A low wing, so the centre of gravity is on the bottom of the fuselage with
+  // the mains right under it: twelve centimetres up, which is where the
+  // nine-inch blades clear the grass and where the full-size aeroplane's wing
+  // root stands, scaled.
+  gearHeight: 0.12,
+  shape: "c47",
+} as const;
+
+/**
+ * The FT Jenny XL: a Curtiss JN-4 in foam, and the slowest wing here to stall.
+ *
+ * Flite Test's tribute to the Jenny, drawn by Dave Jester for a three-hour
+ * build in laser-cut foam and flown, in their words, "delightfully slow". The
+ * published numbers are the kit's: 58.5 inches across, 41 inches long, 2.7 lb
+ * with the battery in it, the centre of gravity 2.2 inches behind the *top*
+ * wing's leading edge, twelve to sixteen degrees of throw, an FT 2814 KV1100 on
+ * a 12x4.5 behind a 40 A controller, a 3300 mAh 3S, four nine-gram servos,
+ * 4.3-inch wheels on .125 wire, and twenty-four feet of cord strung between the
+ * wings as flying wires.
+ *
+ * What Flite Test do not publish is the wing cell, so it is drawn in the
+ * Curtiss proportions at the kit's span: the JN-4's lower wing is 78% of the
+ * upper's, its gap a little over a chord and its stagger a quarter of one, and
+ * a nine-inch chord on both wings is what makes a 58.5-inch aeroplane look
+ * like one. That is 0.6 m^2 of wing under 1.25 kg — under seven ounces to the
+ * square foot, a fifth less than the triplane, and the lightest loading in the
+ * hangar by a distance. So it stalls at about 20 km/h, slower than anything
+ * else here with wings, which is the "delightfully slow" on the box rather
+ * than a figure of speech.
+ *
+ * The power is the triplane's to the part number — the same motor, the same
+ * blade, the same pack — on an airframe half a kilo lighter, so it has twice
+ * its own weight in static thrust: the "unlimited vertical at full power" on
+ * the listing. And like the triplane, it goes nowhere in particular with it,
+ * because a 12x4.5 on three cells screws forward at 71 km/h.
+ *
+ * The cell is not the Baby Blender's either, and the difference is the short
+ * lower wing. Two wings a gap apart shed less vortex than one, and on the
+ * Blender, where the two are the same span, that saving is a quarter. Here the
+ * lower wing stops well inboard of the upper one's tips, so most of the cell's
+ * lift is carried on the long wing and the saving is under a tenth — enough to
+ * pay for most of what a foam wing loses to not being elliptical, not enough
+ * to come out ahead of an ideal monoplane of the same span. What the
+ * overhang buys instead is span: an aspect ratio of 3.7, nearly twice the
+ * Blender's, and with it the cheapest lift of any multiplane here.
+ *
+ * The balance is a trainer's, and it is the thing the kit's "flying
+ * difficulty: easy" is made of. 2.2 inches is under a quarter of the top
+ * wing's chord, and the lower wing is staggered back behind it, so measured
+ * against the pair of them the centre of gravity is barely an eighth of the
+ * way along. The tail is a long way back but it is flying in the downwash of
+ * two wings rather than one, which costs it some of its bite, and the neutral
+ * point comes out near 31% — a static margin of about seventeen per cent,
+ * more than any other Flite Test aeroplane here bar the C-47. It holds a slow
+ * trim hands off, it comes back out of an upset by itself, and full back stick
+ * is a trainer's elevator rather than a snap roll.
+ *
+ * As with every airframe here, the mass, thrust and pitch speed describe it *as
+ * delivered*. Fit anything else in the hangar and they are worked out again
+ * from the hardware.
+ */
+export const FT_JENNY_XL: AircraftConfig = {
+  name: "FT Jenny XL",
+
+  mass: 1.248,
+  // Two long foam wings and nothing else out along them: the motor, the pack,
+  // the servos and the plywood are all in the fuselage. More than the
+  // triplane, whose top wing is a quarter of a metre shorter and which has
+  // nothing hanging past its struts, and a fraction of what a foam delta of the
+  // same span carries.
+  inertiaRoll: 0.078,
+  // A metre of fuselage with the motor and the pack in the nose and the tail at
+  // the far end of it, which is the triplane's layout half a kilo lighter.
+  inertiaPitch: 0.075,
+  inertiaYaw: 0.13,
+
+  // An upper wing of the kit's 58.5 inches and a lower one of 45.5, both of a
+  // nine-inch chord, with the Jenny's raked tips taken off the corners. The
+  // area is the pair of them, which is what a biplane's lift is measured
+  // against.
+  wingArea: 0.6,
+  // The upper wing's, which is the span the kit is sold by.
+  wingSpan: 1.486,
+  // One wing's chord rather than area over span: what a pitching moment is
+  // measured against is the wing the air actually meets.
+  chord: 0.229,
+  // A little over the half-span. The aeroplane is a metre long and a metre
+  // and a half across, so the span is what a collision has to cover.
+  collisionRadius: 0.85,
+
+  maxThrust: 25.4,
+  propPitchSpeed: 19.8,
+  // The triplane's motor and the triplane's foot-wide blade, so the triplane's
+  // answer to the throttle: a sixth of a second to spool, and flown with
+  // rather than set.
+  throttleRate: 1.0,
+  throttleLag: 0.16,
+
+  // The fold Flite Test put into every wing of this size: a curved top over a
+  // flat bottom, which makes lift standing still.
+  cl0: 0.12,
+  // The cell behaves like a single wing of an aspect ratio a little over four,
+  // which is worth about 4.2 per radian on a thin section, and foam board at
+  // this Reynolds number gives some of that back.
+  clAlpha: 3.8,
+  // Fourteen degrees, and a gentle arrival. The lower wing flies in the
+  // upper's downwash and stalls after it, so the break is spread wide — which
+  // is half of what makes this an easy aeroplane to fly slowly.
+  stallAngle: 0.24,
+  stallBlend: 0.2,
+
+  // Two wings, eight wooden interplane struts, the cabanes, a deep slab
+  // fuselage, two 4.3-inch wheels on a spreader bar, and twenty-four feet of
+  // cord strung across all of it. Cleaner than the triplane, which has a
+  // third wing and its struts in the same air on less span, and than the Baby
+  // Blender, whose fuselage is enormous next to its wings; dirtier than
+  // anything without struts.
+  cd0: 0.051,
+  // 0.91 / (pi * 3.68 * 0.8). The 0.91 is what the cell saves over one wing of
+  // the upper's span carrying the same lift, which the short lower wing keeps
+  // small; the 0.8 is what a pair of foam panels with raked tips give back for
+  // not being elliptical.
+  inducedDragFactor: 0.098,
+
+  // A deep slab fuselage a metre long with a wing above it and a wing below.
+  cyBeta: -0.32,
+
+  // Trimmed for the slow flight the box sells. A centre of gravity this far
+  // forward is carried on up elevator, and this is that trim: hands off, the
+  // aeroplane settles at a little over four degrees of incidence and the low
+  // thirties in km/h, half again its stall.
+  cm0: 0.048,
+  // The static margin, times the lift-curve slope: seventeen per cent of the
+  // chord between a centre of gravity at 13% of the cell and a neutral point at
+  // 31%.
+  cmAlpha: -0.66,
+  // A tailplane on 55 cm of arm, which is a long lever against a nine-inch
+  // chord — but a tail a ninth of two wings' area, flying in their downwash,
+  // so what it damps comes out a little under the triplane's.
+  cmQ: -7,
+  // Sixteen degrees of elevator, the top of the kit's range. Against this much
+  // stability full back stick asks for about eighteen degrees of incidence: a
+  // little past the stall, which is a trainer's elevator rather than an
+  // aerobat's.
+  cmElevator: 0.16,
+
+  // Ailerons on the outer panels of the upper wing, out past the lower wing's
+  // tips, at the kit's sixteen degrees. Measured against two wings' area and
+  // produced by one, they come to about a hundred and thirty degrees a second
+  // at a slow cruise — a scale roll, a little quicker than the triplane's and a
+  // third of the Baby Blender's.
+  clAileron: 0.078,
+  // A long wing resists rolling more than a stubby one.
+  clP: -0.58,
+  // A degree of dihedral in each wing, as the Jenny had, and the wing above
+  // the centre of gravity: let go in a turn and it comes slowly back.
+  clBeta: -0.06,
+
+  // A tall rounded rudder on a small fin, on 55 cm of arm.
+  cnBeta: 0.05,
+  cnR: -0.07,
+  cnRudder: 0.035,
+  // Long ailerons on the upper wing drag the rising one back, and nothing in a
+  // foam hinge has any differential to stop them. A Jenny is flown with the
+  // feet, and so is this.
+  cnAileron: -0.016,
+
+  minControlSpeed: 3,
+  // Foam, eight wooden struts and the cord. The flying wires are what Flite
+  // Test call "incredible structural strength", and they are, for a foam
+  // aeroplane: past about 110 km/h the cell is being asked for something it was
+  // never strung for.
+  neverExceedSpeed: 30,
+
+  // Two wheels on a wire leg forward and a skid under the rudder, which is
+  // what the kit contains and what the JN-4 had.
+  undercarriage: "taildragger",
+  // A fifth of the span would stand the aeroplane on stilts, because the span
+  // is the long upper wing and the centre of gravity is not in the middle of
+  // the gap: the lower wing is on the bottom of the fuselage and the upper one
+  // is a long way above it. Twenty-four centimetres, which is the fuselage's
+  // depth and the tall wire legs under it that hang the 4.3-inch wheels well
+  // clear of the lower wing, as the Jenny's did.
+  gearHeight: 0.24,
+  shape: "jenny",
 } as const;
 
 /** Standard gravity, m/s^2. */

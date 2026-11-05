@@ -12,6 +12,8 @@ import {
   MESH_KIND,
   buildAircraftMesh,
   buildBabyBlenderMesh,
+  buildC47Mesh,
+  buildJennyMesh,
   buildGliderMesh,
   buildP38Mesh,
   buildQuadMesh,
@@ -468,6 +470,8 @@ export function runRenderTests(): void {
       ["the triplane", buildTriplaneMesh()],
       ["the P-38", buildP38Mesh()],
       ["the Baby Blender", buildBabyBlenderMesh()],
+      ["the C-47", buildC47Mesh()],
+      ["the Jenny XL", buildJennyMesh()],
     ] as const) {
       let solids = 0;
       let inverted = 0;

@@ -70,6 +70,8 @@ export const MESH_KIND = {
   Triplane: "triplane",
   P38: "p38",
   Biplane: "biplane",
+  C47: "c47",
+  Jenny: "jenny",
 } as const;
 
 export type MeshKind = (typeof MESH_KIND)[keyof typeof MESH_KIND];
@@ -5364,6 +5366,1543 @@ export function buildBabyBlenderMesh(): AircraftMesh {
   return cachedBabyBlender;
 }
 
+// --- The FT Master Series C-47 ----------------------------------------------
+
+/**
+ * Procedural geometry for the FT Master Series C-47 60in.
+ *
+ * Flite Test's Douglas Skytrain, and drawn to the full-size aeroplane's shape
+ * at the kit's 60 inches: a low wing with a constant-chord centre section and
+ * outer panels whose leading edge sweeps back over a straight trailing edge; a
+ * round fuselage a metre long with the nose ahead of the propellers, the
+ * windscreen over it and a row of cabin windows down each side; an engine
+ * nacelle under the wing either side with the mains hanging beneath it; the
+ * tall fin with the dorsal fillet the DC-3 grew in front of it; and a
+ * tailwheel.
+ *
+ * The wing and the ailerons are lofted by the same code every other wing here
+ * is. The fuselage and the nacelles are lofts of their own, round rather than
+ * the P-38's squared-off booms, because a DC-3 is round.
+ *
+ * Two propellers, and both turn the same way, because both of a C-47's
+ * engines did — unlike the P-38 beside it, nobody handed the Skytrain
+ * opposite-handed engines.
+ *
+ * Same body frame as everything else: X = forward, Y = left, Z = up, origin at
+ * the centre of gravity, which on this one is exactly 63.5 mm behind the wing
+ * root's leading edge because that is the number on the box, and on the wing's
+ * chord line with the fuselage sitting on top of it.
+ */
+
+/** Wing span of the C-47 this geometry was drawn from, metres. */
+export const MESH_C47_SPAN = 1.524;
+
+/** The wing root's leading edge, 2.5 inches ahead of the centre of gravity. */
+const C47_ROOT_LEADING = 0.0635;
+/** The trailing edge, which on a DC-3 is straight from root to tip. */
+const C47_TRAILING = -0.1565;
+
+/**
+ * Root-to-tip stations: the Douglas planform.
+ *
+ * Constant chord out past the nacelles, flat across the centre section; then
+ * the outer panels, with the leading edge swept back over a straight trailing
+ * edge and five degrees of dihedral in them, to a rounded tip. It is the
+ * shape of every DC-3 ever built, and it is what puts the mean chord's leading
+ * edge 30 mm behind the root's — which is why the kit's centre of gravity sits
+ * as far forward on the mean chord as it does.
+ */
+const C47_STATIONS: readonly Station[] = [
+  {
+    y: 0.0,
+    leading: C47_ROOT_LEADING,
+    trailing: C47_TRAILING,
+    thickness: 0.03,
+    z: 0.0,
+  },
+  {
+    y: 0.22,
+    leading: C47_ROOT_LEADING,
+    trailing: C47_TRAILING,
+    thickness: 0.029,
+    z: 0.0,
+  },
+  { y: 0.4, leading: 0.0303, trailing: C47_TRAILING, thickness: 0.025, z: 0.0157 },
+  { y: 0.58, leading: -0.0029, trailing: C47_TRAILING, thickness: 0.02, z: 0.0315 },
+  { y: 0.72, leading: -0.0288, trailing: C47_TRAILING, thickness: 0.016, z: 0.0437 },
+  { y: 0.762, leading: -0.045, trailing: -0.15, thickness: 0.011, z: 0.0474 },
+];
+
+/** Chord fractions sampled across each section, nose to tail. */
+const C47_CHORD_SAMPLES = [0, 0.05, 0.16, 0.38, 0.66, 1] as const;
+
+/**
+ * The ailerons: the whole of the outer panel's trailing edge.
+ *
+ * Long and narrow, as a DC-3's are, from the panel joint out to the tip. Drawn
+ * where they sit rather than moved, as on every aeroplane here with a tail.
+ */
+const C47_HINGE_X = -0.125;
+const C47_HINGE_Z = 0.03;
+const C47_FIRST_AILERON_STATION = 2;
+const C47_AILERON_SAMPLES = [0, 0.5, 1] as const;
+
+/** A built-up foam board section: curved on top, nearly flat beneath. */
+function c47UpperProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return 0.72 * Math.sin(Math.PI * Math.pow(f, 0.55));
+}
+
+function c47LowerProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return -0.22 * Math.sin(Math.PI * Math.pow(f, 0.85));
+}
+
+const C47_PLANFORM: Planform = {
+  stations: C47_STATIONS,
+  chordSamples: C47_CHORD_SAMPLES,
+  hingeX: C47_HINGE_X,
+  hingeZ: C47_HINGE_Z,
+  firstElevonStation: C47_FIRST_AILERON_STATION,
+  lastElevonStation: C47_STATIONS.length - 1,
+  elevonSamples: C47_AILERON_SAMPLES,
+  upper: c47UpperProfile,
+  lower: c47LowerProfile,
+};
+
+/** Where the nacelles hang, and where the propellers turn on the front. */
+const C47_NACELLE_Y = 0.2;
+const C47_PROP_X = 0.215;
+const C47_PROP_AXIS_Z = 0.002;
+/** Nine inches across, which is what Power Pack B puts in the box. */
+const C47_PROP_RADIUS = (9 * 0.0254) / 2;
+
+/**
+ * Where the aeroplane touches the ground, and it has to be exactly here.
+ *
+ * The ground model holds a taildragger twelve degrees nose-up, and this one
+ * says its own gear holds the centre of gravity twelve centimetres off the
+ * surface, so the wheels are put where that attitude actually puts them: solve
+ * the pitched ground plane for each contact point and the aeroplane stands on
+ * all three rather than hovering over them or sinking through. A wheel is
+ * raised by its radius measured square to that plane, so its lowest point is
+ * on it.
+ */
+const C47_REST_HEIGHT = 0.12;
+const C47_REST_PITCH = (12 * Math.PI) / 180;
+
+function c47WheelZ(x: number, radius: number): number {
+  return (
+    (-C47_REST_HEIGHT - x * Math.sin(C47_REST_PITCH) + radius) /
+    Math.cos(C47_REST_PITCH)
+  );
+}
+
+/** Three-inch wheels on the mains, under the nacelles and ahead of the balance. */
+const C47_MAIN_WHEEL_X = 0.06;
+const C47_MAIN_WHEEL_RADIUS = (3 * 0.0254) / 2;
+const C47_MAIN_WHEEL_Z = c47WheelZ(C47_MAIN_WHEEL_X, C47_MAIN_WHEEL_RADIUS);
+const C47_TAILWHEEL_X = -0.56;
+const C47_TAILWHEEL_RADIUS = 0.016;
+const C47_TAILWHEEL_Z = c47WheelZ(C47_TAILWHEEL_X, C47_TAILWHEEL_RADIUS);
+
+/** The tailplane, and where the elevator hinges in it. */
+const C47_TAIL_Z = 0.07;
+const C47_TAIL_HALF_SPAN = 0.23;
+const C47_TAIL_ROOT_GAP = 0.012;
+const C47_ELEVATOR_HINGE_X = -0.6;
+
+/** Olive drab, the invasion stripes' black and white, and rubber. */
+const C47_SHELL_TOP: readonly [number, number, number] = [0.333, 0.341, 0.247];
+const C47_SHELL_BOTTOM: readonly [number, number, number] = [
+  0.235, 0.24, 0.176,
+];
+const C47_STRIPE: readonly [number, number, number] = [0.937, 0.929, 0.898];
+const C47_STRIPE_BLACK: readonly [number, number, number] = [0.05, 0.05, 0.055];
+const C47_TYRE: readonly [number, number, number] = [0.08, 0.08, 0.085];
+
+/** How dark each panel is against the top of the wing. */
+const C47_BOTTOM_SHADE = 0.7;
+const C47_BODY_SHADE = 0.9;
+const C47_TAIL_SHADE = 0.95;
+
+/**
+ * One station of the fuselage or a nacelle: an oval, nearly round.
+ *
+ * Given by its top and bottom rather than by an axis, because neither body
+ * here has a straight one: the fuselage's underside sweeps up into the tail
+ * and a nacelle hangs deeper below the wing than it stands above it.
+ */
+interface C47Ring {
+  x: number;
+  halfWidth: number;
+  top: number;
+  bottom: number;
+}
+
+/** How many facets each station is drawn with. */
+const C47_BODY_SEGMENTS = 12;
+
+/** How far the oval is squared off: barely, because a DC-3 is round. */
+const C47_ROUNDNESS = 0.85;
+
+function c47Shape(v: number): number {
+  return Math.sign(v) * Math.pow(Math.abs(v), C47_ROUNDNESS);
+}
+
+/** One point on a station, `y` across from the body's own centreline. */
+function c47RingPoint(ring: C47Ring, angle: number, y: number): Point {
+  const middle = (ring.top + ring.bottom) / 2;
+  const half = (ring.top - ring.bottom) / 2;
+  return [
+    ring.x,
+    y + c47Shape(Math.cos(angle)) * ring.halfWidth,
+    middle + c47Shape(Math.sin(angle)) * half,
+  ];
+}
+
+/** A station anywhere along a body, between the two it falls between. */
+function c47RingAt(rings: readonly C47Ring[], x: number): C47Ring {
+  for (let i = 0; i + 1 < rings.length; i += 1) {
+    const front = rings[i]!;
+    const back = rings[i + 1]!;
+    if (x <= front.x && x >= back.x) {
+      const t = (front.x - x) / (front.x - back.x || 1);
+      return {
+        x,
+        halfWidth: front.halfWidth + (back.halfWidth - front.halfWidth) * t,
+        top: front.top + (back.top - front.top) * t,
+        bottom: front.bottom + (back.bottom - front.bottom) * t,
+      };
+    }
+  }
+  const nearest = x > rings[0]!.x ? rings[0]! : rings[rings.length - 1]!;
+  return { ...nearest, x };
+}
+
+/**
+ * One lofted body, closed onto a point at each end and wound outwards.
+ *
+ * Stations run front to back. The two cones are closed rather than left open,
+ * so each body is a solid that a back-face-culled renderer can be trusted with.
+ */
+function buildC47Body(
+  part: PartBuilder,
+  rings: readonly C47Ring[],
+  y: number,
+  nose: Point,
+  tail: Point,
+): void {
+  const segments = C47_BODY_SEGMENTS;
+  for (let i = 0; i + 1 < rings.length; i += 1) {
+    const front = rings[i]!;
+    const back = rings[i + 1]!;
+    for (let j = 0; j < segments; j += 1) {
+      const a0 = (j / segments) * Math.PI * 2;
+      const a1 = ((j + 1) / segments) * Math.PI * 2;
+      part.quad(
+        c47RingPoint(front, a0, y),
+        c47RingPoint(back, a0, y),
+        c47RingPoint(back, a1, y),
+        c47RingPoint(front, a1, y),
+      );
+    }
+  }
+  const first = rings[0]!;
+  const last = rings[rings.length - 1]!;
+  for (let j = 0; j < segments; j += 1) {
+    const a0 = (j / segments) * Math.PI * 2;
+    const a1 = ((j + 1) / segments) * Math.PI * 2;
+    part.triangle(nose, c47RingPoint(first, a0, y), c47RingPoint(first, a1, y));
+    part.triangle(tail, c47RingPoint(last, a1, y), c47RingPoint(last, a0, y));
+  }
+}
+
+/**
+ * The fuselage, nose to tail cone.
+ *
+ * A metre long, round, and sitting on the wing rather than through it: the
+ * chord line runs under the cabin floor, which is what a low wing is. The
+ * nose stands well ahead of the propellers, the cabin is the same section for
+ * most of its length, and the underside sweeps up into the tail cone so the
+ * fin and the tailplane sit high.
+ */
+const C47_FUSELAGE: readonly C47Ring[] = [
+  { x: 0.36, halfWidth: 0.022, top: 0.056, bottom: 0.012 },
+  { x: 0.33, halfWidth: 0.04, top: 0.076, bottom: -0.004 },
+  { x: 0.28, halfWidth: 0.052, top: 0.094, bottom: -0.016 },
+  { x: 0.2, halfWidth: 0.058, top: 0.106, bottom: -0.024 },
+  { x: 0.08, halfWidth: 0.06, top: 0.11, bottom: -0.026 },
+  { x: -0.1, halfWidth: 0.06, top: 0.11, bottom: -0.024 },
+  { x: -0.25, halfWidth: 0.054, top: 0.106, bottom: -0.008 },
+  { x: -0.4, halfWidth: 0.042, top: 0.1, bottom: 0.014 },
+  { x: -0.53, halfWidth: 0.028, top: 0.092, bottom: 0.038 },
+  { x: -0.62, halfWidth: 0.016, top: 0.086, bottom: 0.056 },
+];
+const C47_NOSE: Point = [0.378, 0, 0.034];
+const C47_TAIL_CONE: Point = [-0.665, 0, 0.072];
+
+/**
+ * One nacelle: the cowling on the front and the gear well hung beneath.
+ *
+ * Deeper under the wing than above it, as a DC-3's are — the main gear folds
+ * up into the back of it — and finished just behind the trailing edge.
+ */
+const C47_NACELLE: readonly C47Ring[] = [
+  { x: 0.2, halfWidth: 0.03, top: 0.03, bottom: -0.026 },
+  { x: 0.185, halfWidth: 0.04, top: 0.042, bottom: -0.038 },
+  { x: 0.12, halfWidth: 0.042, top: 0.044, bottom: -0.044 },
+  { x: 0.04, halfWidth: 0.038, top: 0.036, bottom: -0.052 },
+  { x: -0.06, halfWidth: 0.032, top: 0.026, bottom: -0.048 },
+  { x: -0.15, halfWidth: 0.018, top: 0.014, bottom: -0.028 },
+];
+
+/**
+ * The windscreen, and a row of cabin windows down each side.
+ *
+ * The camera sits behind the windscreen where the captain's head is, looking
+ * out over the nose between the two engines. The cabin windows are the one
+ * thing that makes a fuselage this shape read as a DC-3 rather than a drop
+ * tank, so there are six a side, sitting a hair proud of the skin.
+ */
+function buildC47Glazing(glass: PartBuilder): void {
+  const windscreen: Point[] = [
+    [0.318, -0.03, 0.07],
+    [0.296, -0.03, 0.09],
+    [0.296, 0.03, 0.09],
+    [0.318, 0.03, 0.07],
+  ];
+  glass.plate(windscreen, 0.004, 0);
+
+  const low = 0.006;
+  const high = 0.022;
+  for (const x of [0.14, 0.07, 0, -0.07, -0.14, -0.21] as const) {
+    const ring = c47RingAt(C47_FUSELAGE, x);
+    const middle = (ring.top + ring.bottom) / 2;
+    const half = (ring.top - ring.bottom) / 2;
+    // Where the skin is at the window's mid-height, so the pane sits on it.
+    const s = Math.pow((low + high) / 2 / half, 1 / C47_ROUNDNESS);
+    const skin = ring.halfWidth * c47Shape(Math.sqrt(1 - s * s));
+    for (const sign of [1, -1] as const) {
+      const pane: Point[] = [
+        [x + 0.014, (skin + 0.001) * sign, middle + low],
+        [x - 0.014, (skin + 0.001) * sign, middle + low],
+        [x - 0.014, (skin + 0.001) * sign, middle + high],
+        [x + 0.014, (skin + 0.001) * sign, middle + high],
+      ];
+      glass.plate(pane, 0.002, 1);
+    }
+  }
+}
+
+/**
+ * Fin, rudder and tailplane.
+ *
+ * The fin is the DC-3's: tall, with a rounded top and a long dorsal fillet
+ * running forward along the spine, and drawn as one piece with the rudder
+ * behind it — the flight model has one pair of hinged surfaces to spend and it
+ * spends them on the elevator. The tailplane is high on the tail cone, with
+ * its leading edge swept back to rounded tips.
+ */
+function buildC47Tail(tail: PartBuilder): void {
+  const fin: Point[] = [
+    [-0.5, 0, 0.1],
+    [-0.585, 0, 0.245],
+    [-0.635, 0, 0.25],
+    [-0.68, 0, 0.17],
+    [-0.675, 0, 0.075],
+    [-0.6, 0, 0.08],
+  ];
+  tail.plate(fin, 0.006, 1);
+  const fillet: Point[] = [
+    [-0.38, 0, 0.102],
+    [-0.56, 0, 0.09],
+    [-0.545, 0, 0.17],
+  ];
+  tail.plate(fillet, 0.005, 1);
+
+  const z = C47_TAIL_Z;
+  const span = C47_TAIL_HALF_SPAN;
+  const hinge = C47_ELEVATOR_HINGE_X;
+  const stabiliser: Point[] = [
+    [-0.5, 0, z],
+    [-0.56, span - 0.015, z],
+    [-0.58, span, z],
+    [hinge, span, z],
+    [hinge, -span, z],
+    [-0.58, -span, z],
+    [-0.56, -(span - 0.015), z],
+  ];
+  tail.plate(stabiliser, 0.008, 2);
+}
+
+/** One half of the elevator, in a frame whose origin sits on its hinge. */
+function buildC47Elevator(part: PartBuilder, sign: number): void {
+  const inner = C47_TAIL_ROOT_GAP * sign;
+  const outer = C47_TAIL_HALF_SPAN * sign;
+  const outline: Point[] = [
+    [0, inner, 0],
+    [0, outer, 0],
+    [-0.042, outer, 0],
+    [-0.062, inner, 0],
+  ];
+  part.plate(outline, 0.008, 2);
+}
+
+/**
+ * The undercarriage: a main under each nacelle, and a tailwheel.
+ *
+ * Each main is a pair of wire legs down from the nacelle to a three-inch wheel
+ * a little ahead of the centre of gravity, which is what a taildragger has to
+ * have and what lets the aeroplane rock forward onto them as the tail comes
+ * up. The tailwheel is on a short leg under the fin. Those three are the
+ * points it stands on, and they are what put its wing at twelve degrees
+ * before it has moved.
+ */
+function buildC47Gear(legs: PartBuilder, tyres: PartBuilder): void {
+  for (const sign of [1, -1] as const) {
+    const y = C47_NACELLE_Y * sign;
+    const hub: Point = [C47_MAIN_WHEEL_X, y, C47_MAIN_WHEEL_Z];
+    buildRoundStrut(legs, [0.095, y, -0.036], hub, 0.003);
+    buildRoundStrut(legs, [0.02, y, -0.046], hub, 0.003);
+    buildWheel(
+      tyres,
+      C47_MAIN_WHEEL_X,
+      y,
+      C47_MAIN_WHEEL_Z,
+      C47_MAIN_WHEEL_RADIUS,
+      0.022,
+    );
+  }
+
+  buildRoundStrut(
+    legs,
+    [-0.535, 0, 0.044],
+    [C47_TAILWHEEL_X, 0, C47_TAILWHEEL_Z],
+    0.0025,
+  );
+  buildWheel(
+    tyres,
+    C47_TAILWHEEL_X,
+    0,
+    C47_TAILWHEEL_Z,
+    C47_TAILWHEEL_RADIUS,
+    0.01,
+  );
+}
+
+/**
+ * The invasion stripes, which is what an accent is on this aeroplane.
+ *
+ * Three white bands and two black ones round the rear fuselage and across each
+ * wing, painted on every Skytrain that crossed the Channel on the night of the
+ * fifth of June 1944. The white is the livery's accent and the black stays
+ * black. Sitting a millimetre and a half proud of the skin, so it cannot fight
+ * the shell for the same pixels.
+ */
+const C47_STRIPE_WIDTH = 0.024;
+const C47_FUSELAGE_STRIPES_FROM = -0.3;
+const C47_WING_STRIPES_FROM = 0.44;
+
+function buildC47Stripes(white: PartBuilder, black: PartBuilder): void {
+  const proud = 0.0015;
+  const grow = (ring: C47Ring): C47Ring => ({
+    x: ring.x,
+    halfWidth: ring.halfWidth + proud,
+    top: ring.top + proud,
+    bottom: ring.bottom - proud,
+  });
+  const segments = C47_BODY_SEGMENTS;
+  const whiteWing: [number, number][] = [];
+  const blackWing: [number, number][] = [];
+  for (let band = 0; band < 5; band += 1) {
+    const part = band % 2 === 0 ? white : black;
+    const x0 = C47_FUSELAGE_STRIPES_FROM - band * C47_STRIPE_WIDTH;
+    const front = grow(c47RingAt(C47_FUSELAGE, x0));
+    const back = grow(c47RingAt(C47_FUSELAGE, x0 - C47_STRIPE_WIDTH));
+    for (let j = 0; j < segments; j += 1) {
+      const a0 = (j / segments) * Math.PI * 2;
+      const a1 = ((j + 1) / segments) * Math.PI * 2;
+      part.quad(
+        c47RingPoint(front, a0, 0),
+        c47RingPoint(back, a0, 0),
+        c47RingPoint(back, a1, 0),
+        c47RingPoint(front, a1, 0),
+      );
+    }
+    const y0 = C47_WING_STRIPES_FROM + band * C47_STRIPE_WIDTH;
+    (band % 2 === 0 ? whiteWing : blackWing).push([y0, y0 + C47_STRIPE_WIDTH]);
+  }
+  buildAccentStripes(C47_PLANFORM, white, whiteWing);
+  buildAccentStripes(C47_PLANFORM, black, blackWing);
+}
+
+/**
+ * One propeller, in its own frame with the hub at zero.
+ *
+ * Two blades, because that is what comes in the box — the full-size aeroplane
+ * turned three. No spinner: a C-47's propellers ran on a bare hub dome, and
+ * that is what is drawn in front of each cowling.
+ */
+function buildC47Propeller(prop: PartBuilder, hub: PartBuilder): void {
+  const radius = C47_PROP_RADIUS;
+  const blade = (direction: 1 | -1): Point[] => {
+    const points: Point[] = [
+      [0, 0.012, 0.016 * direction],
+      [0, 0.018, 0.055 * direction],
+      [0, 0.011, radius * direction],
+      [0, -0.009, radius * 0.93 * direction],
+      [0, -0.015, 0.052 * direction],
+      [0, -0.01, 0.015 * direction],
+    ];
+    return direction === 1 ? points : points.slice().reverse();
+  };
+  prop.plate(blade(1), 0.005, 0);
+  prop.plate(blade(-1), 0.005, 0);
+
+  const segments = 10;
+  const hubRadius = 0.017;
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    const rim = (angle: number): Point => [
+      -0.008,
+      Math.cos(angle) * hubRadius,
+      Math.sin(angle) * hubRadius,
+    ];
+    hub.triangle([0.016, 0, 0], rim(a0), rim(a1));
+    hub.triangle([-0.008, 0, 0], rim(a1), rim(a0));
+  }
+}
+
+let cachedC47: AircraftMesh | null = null;
+
+/** Builds (once) and returns the FT C-47 mesh. */
+export function buildC47Mesh(): AircraftMesh {
+  if (cachedC47) return cachedC47;
+
+  const top = new PartBuilder("c47-top", C47_SHELL_TOP, PAINT.Shell);
+  const bottom = new PartBuilder(
+    "c47-bottom",
+    C47_SHELL_BOTTOM,
+    PAINT.Shell,
+    C47_BOTTOM_SHADE,
+  );
+  const fuselage = new PartBuilder(
+    "c47-fuselage",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+    C47_BODY_SHADE,
+  );
+  const nacelles = new PartBuilder(
+    "c47-nacelles",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+    C47_BODY_SHADE,
+  );
+  const tail = new PartBuilder(
+    "c47-tail",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+    C47_TAIL_SHADE,
+  );
+  const white = new PartBuilder("c47-stripes", C47_STRIPE, PAINT.Accent);
+  const black = new PartBuilder("c47-stripes-black", C47_STRIPE_BLACK);
+  const legs = new PartBuilder("c47-gear", MOTOR);
+  const tyres = new PartBuilder("c47-tyres", C47_TYRE);
+  const glass = new PartBuilder("c47-glass", LENS);
+  const aileronLeft = new PartBuilder(
+    "c47-aileron-left",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronRight = new PartBuilder(
+    "c47-aileron-right",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+  );
+  const aileronUnderLeft = new PartBuilder(
+    "c47-aileron-left-bottom",
+    C47_SHELL_BOTTOM,
+    PAINT.Shell,
+    C47_BOTTOM_SHADE,
+  );
+  const aileronUnderRight = new PartBuilder(
+    "c47-aileron-right-bottom",
+    C47_SHELL_BOTTOM,
+    PAINT.Shell,
+    C47_BOTTOM_SHADE,
+  );
+  const elevatorLeft = new PartBuilder(
+    "c47-elevator-left",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+    C47_TAIL_SHADE,
+  );
+  const elevatorRight = new PartBuilder(
+    "c47-elevator-right",
+    C47_SHELL_TOP,
+    PAINT.Shell,
+    C47_TAIL_SHADE,
+  );
+
+  buildWing(C47_PLANFORM, top, bottom);
+  buildElevon(C47_PLANFORM, aileronLeft, 1, aileronUnderLeft);
+  buildElevon(C47_PLANFORM, aileronRight, -1, aileronUnderRight);
+  buildC47Body(fuselage, C47_FUSELAGE, 0, C47_NOSE, C47_TAIL_CONE);
+  for (const sign of [1, -1] as const) {
+    const y = C47_NACELLE_Y * sign;
+    buildC47Body(nacelles, C47_NACELLE, y, [0.208, y, 0.002], [-0.2, y, -0.006]);
+  }
+  buildC47Glazing(glass);
+  buildC47Tail(tail);
+  buildC47Elevator(elevatorLeft, 1);
+  buildC47Elevator(elevatorRight, -1);
+  buildC47Gear(legs, tyres);
+  buildC47Stripes(white, black);
+
+  // Two propellers, the same two parts built twice: the group carries the hub.
+  const propellers: PropellerGroup[] = [];
+  const propellerParts: MeshPart[] = [];
+  for (const sign of [1, -1] as const) {
+    const side = sign > 0 ? "left" : "right";
+    const blades = new PartBuilder(`c47-propeller-${side}`, MOTOR);
+    const hub = new PartBuilder(`c47-hub-${side}`, MOTOR);
+    buildC47Propeller(blades, hub);
+    const parts = [blades.build(), hub.build()].filter(
+      (part): part is MeshPart => part !== null,
+    );
+    propellerParts.push(...parts);
+    propellers.push({
+      name: `c47-propeller-${side}`,
+      origin: [C47_PROP_X, C47_NACELLE_Y * sign, C47_PROP_AXIS_Z],
+      axis: "x",
+      // Both the same way, as a C-47's two Twin Wasps turned.
+      direction: 1,
+      parts,
+    });
+  }
+
+  // The ailerons are drawn where they sit and stay there: the hinge line is
+  // visible in the outer panels, and the surface that moves is the elevator.
+  const ailerons = [
+    aileronLeft.build(),
+    aileronUnderLeft.build(),
+    aileronRight.build(),
+    aileronUnderRight.build(),
+  ]
+    .filter((part): part is MeshPart => part !== null)
+    .map((part) => translated(part, C47_HINGE_X, 0, C47_HINGE_Z));
+  const parts = [
+    ...[top, bottom, fuselage, nacelles, tail, white, black, legs, tyres, glass]
+      .map((builder) => builder.build())
+      .filter((part): part is MeshPart => part !== null),
+    ...ailerons,
+  ];
+
+  const leftParts = [elevatorLeft.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const rightParts = [elevatorRight.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const staticParts = [
+    ...parts,
+    ...[...leftParts, ...rightParts].map((part) =>
+      translated(part, C47_ELEVATOR_HINGE_X, 0, C47_TAIL_Z),
+    ),
+  ];
+
+  const triangleCount =
+    [...parts, ...propellerParts, ...leftParts, ...rightParts].reduce(
+      (sum, part) => sum + part.indices.length,
+      0,
+    ) / 3;
+
+  cachedC47 = {
+    kind: MESH_KIND.C47,
+    referenceSpan: MESH_C47_SPAN,
+    parts,
+    propellers,
+    elevonParts: { left: leftParts, right: rightParts },
+    elevonOrigin: [C47_ELEVATOR_HINGE_X, 0, C47_TAIL_Z],
+    staticParts,
+    // In the cockpit behind the windscreen, where the captain sits: high on
+    // the nose, ahead of the wing and between the two engines, which is the
+    // view a C-47 was flown by.
+    fpvCamera: { offset: [0.285, 0, 0.082], tiltDegrees: 6 },
+    triangleCount,
+  };
+  return cachedC47;
+}
+
+// --- The FT Jenny XL --------------------------------------------------------
+
+/**
+ * Procedural geometry for the FT Jenny XL.
+ *
+ * Flite Test's Curtiss JN-4, drawn at the kit's 58.5 inches in the Curtiss
+ * proportions: a long upper wing with its tips well out past a lower wing 78%
+ * of its span, both of a nine-inch chord, staggered a quarter of a chord and a
+ * little over a chord apart, with a degree of dihedral in each; two bays of
+ * wooden interplane struts a side and a pair of cabanes, all of it strung with
+ * the cord the kit calls flying wires, and a king post over the outer strut to
+ * carry the overhang; a slab-sided fuselage a metre long with a rounded
+ * decking, two open cockpits and the metal cowl and radiator of the OX-5 on the nose; a
+ * small fin with the Jenny's tall rounded rudder behind it in the 1918 stripes;
+ * a broad tailplane; two 4.3-inch wheels on V legs with a spreader bar between
+ * them, and a skid under the rudder.
+ *
+ * Both wings are lofted by the same code every other wing here is. Only the
+ * upper one has anything hinged in it — the ailerons, out on the overhang where
+ * the Jenny carried them — and, as on every other aeroplane here with a tail,
+ * they are drawn where they sit and it is the elevator that moves.
+ *
+ * Same body frame as everything else: X = forward, Y = left, Z = up, origin at
+ * the centre of gravity, which on this one is exactly 2.2 inches behind the
+ * upper wing's leading edge because that is the number on the box.
+ */
+
+/** Wing span of the Jenny this geometry was drawn from, metres. */
+export const MESH_JENNY_SPAN = 1.486;
+
+/**
+ * Where each wing sits.
+ *
+ * Both are the same nine-inch chord. The upper one's leading edge is the kit's
+ * 2.2 inches ahead of the centre of gravity, and the lower one is staggered a
+ * quarter of a chord behind it and a little over a chord below, which is where
+ * Curtiss put the JN-4's.
+ */
+const JENNY_CHORD = 0.229;
+const JENNY_TOP_LEADING = 2.2 * 0.0254;
+const JENNY_TOP_TRAILING = JENNY_TOP_LEADING - JENNY_CHORD;
+const JENNY_STAGGER = 0.057;
+const JENNY_LOWER_LEADING = JENNY_TOP_LEADING - JENNY_STAGGER;
+const JENNY_LOWER_TRAILING = JENNY_LOWER_LEADING - JENNY_CHORD;
+const JENNY_TOP_Z = 0.15;
+const JENNY_LOWER_Z = -0.09;
+/** Half of each wing's span: the kit's 58.5 inches, and 78% of it below. */
+const JENNY_TOP_HALF_SPAN = MESH_JENNY_SPAN / 2;
+const JENNY_LOWER_HALF_SPAN = 0.578;
+/** A degree of dihedral in each wing, as the Jenny had. */
+const JENNY_DIHEDRAL = Math.tan((1 * Math.PI) / 180);
+
+/** Height of a wing's chord line at a span position. */
+function jennyWingZ(base: number, y: number): number {
+  return base + Math.abs(y) * JENNY_DIHEDRAL;
+}
+
+/**
+ * The aileron hinge, a quarter of the chord forward of the trailing edge.
+ *
+ * The ailerons run from inboard of the outer strut to just short of the tip,
+ * which on a Jenny is out on the overhang, past where the lower wing stops.
+ */
+const JENNY_HINGE_X = JENNY_TOP_TRAILING + 0.057;
+const JENNY_AILERON_FROM = 0.4;
+const JENNY_AILERON_TO = 0.69;
+const JENNY_HINGE_Z = jennyWingZ(
+  JENNY_TOP_Z,
+  (JENNY_AILERON_FROM + JENNY_AILERON_TO) / 2,
+);
+const JENNY_AILERON_SAMPLES = [0, 0.5, 1] as const;
+
+/** Chord fractions sampled across each section, nose to tail. */
+const JENNY_CHORD_SAMPLES = [0, 0.05, 0.16, 0.38, 0.67, 1] as const;
+
+/** The fold Flite Test put in a wing this size: a curved top, a flat bottom. */
+function jennyUpperProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return 0.95 * Math.sin(Math.PI * Math.pow(f, 0.45));
+}
+
+function jennyLowerProfile(f: number): number {
+  if (f <= 0 || f >= 1) return 0;
+  return -0.08 * Math.sin(Math.PI * Math.pow(f, 0.85));
+}
+
+/**
+ * One wing's stations, root to raked tip.
+ *
+ * Constant chord all the way out, which is a foam wing cut from a sheet, with
+ * the Jenny's raked tip: the leading edge stops short of the trailing edge, so
+ * the tip slants back and out.
+ */
+function jennyStations(
+  base: number,
+  leading: number,
+  spans: readonly number[],
+  halfSpan: number,
+): Station[] {
+  const trailing = leading - JENNY_CHORD;
+  const stations: Station[] = spans.map((y) => ({
+    y,
+    leading,
+    trailing,
+    thickness: 0.022,
+    z: jennyWingZ(base, y),
+  }));
+  stations.push({
+    y: halfSpan,
+    leading: leading - 0.07,
+    trailing: trailing + 0.006,
+    thickness: 0.016,
+    z: jennyWingZ(base, halfSpan),
+  });
+  return stations;
+}
+
+const JENNY_TOP_STATIONS = jennyStations(
+  JENNY_TOP_Z,
+  JENNY_TOP_LEADING,
+  [0, 0.12, JENNY_AILERON_FROM, 0.55, JENNY_AILERON_TO],
+  JENNY_TOP_HALF_SPAN,
+);
+const JENNY_LOWER_STATIONS = jennyStations(
+  JENNY_LOWER_Z,
+  JENNY_LOWER_LEADING,
+  [0, 0.06, 0.27, 0.53],
+  JENNY_LOWER_HALF_SPAN,
+);
+
+/** The upper wing, and the only one with a moving surface in it. */
+const JENNY_TOP_PLANFORM: Planform = {
+  stations: JENNY_TOP_STATIONS,
+  chordSamples: JENNY_CHORD_SAMPLES,
+  hingeX: JENNY_HINGE_X,
+  hingeZ: JENNY_HINGE_Z,
+  firstElevonStation: 2,
+  lastElevonStation: 4,
+  elevonSamples: JENNY_AILERON_SAMPLES,
+  upper: jennyUpperProfile,
+  lower: jennyLowerProfile,
+};
+
+/** The lower wing: the same section, and nothing cut out of it. */
+const JENNY_LOWER_PLANFORM: Planform = {
+  stations: JENNY_LOWER_STATIONS,
+  chordSamples: JENNY_CHORD_SAMPLES,
+  hingeX: JENNY_LOWER_TRAILING + 0.057,
+  hingeZ: JENNY_LOWER_Z,
+  firstElevonStation: 0,
+  lastElevonStation: -1,
+  elevonSamples: JENNY_AILERON_SAMPLES,
+  upper: jennyUpperProfile,
+  lower: jennyLowerProfile,
+};
+
+/** Clear-doped linen, Signal Corps olive drab, varnished wood and a cowl. */
+const JENNY_LINEN: readonly [number, number, number] = [0.867, 0.816, 0.659];
+const JENNY_LINEN_BOTTOM: readonly [number, number, number] = [
+  0.633, 0.596, 0.481,
+];
+const JENNY_DRAB: readonly [number, number, number] = [0.353, 0.353, 0.227];
+const JENNY_WOOD: readonly [number, number, number] = [0.49, 0.33, 0.18];
+const JENNY_COWL: readonly [number, number, number] = [0.62, 0.63, 0.64];
+const JENNY_WIRE: readonly [number, number, number] = [0.12, 0.12, 0.13];
+const JENNY_TYRE: readonly [number, number, number] = [0.09, 0.09, 0.095];
+const JENNY_RED: readonly [number, number, number] = [0.72, 0.13, 0.14];
+const JENNY_WHITE: readonly [number, number, number] = [0.93, 0.92, 0.89];
+const JENNY_BLUE: readonly [number, number, number] = [0.12, 0.2, 0.45];
+
+/** How dark each panel is against the top of the wings. */
+const JENNY_BOTTOM_SHADE = 0.73;
+const JENNY_TAIL_SHADE = 0.95;
+
+/** Where the propeller turns, and how big it is. */
+const JENNY_PROP_X = 0.375;
+const JENNY_PROP_AXIS_Z = -0.01;
+/** Twelve inches across, which is the XL Power Pack's blade. */
+const JENNY_PROP_RADIUS = (12 * 0.0254) / 2;
+
+/**
+ * Where the aeroplane touches the ground, and it has to be exactly here.
+ *
+ * The ground model stands the Jenny's reference point the height its gear says
+ * and holds it twelve degrees nose-up, so the wheels and the skid are put where
+ * that attitude actually puts them: each one solved against the pitched ground
+ * plane, so the aeroplane stands on all three.
+ */
+const JENNY_REST_HEIGHT = 0.24;
+const JENNY_REST_PITCH = (12 * Math.PI) / 180;
+
+/** Body Z of a point `clearance` off the ground the aeroplane rests on. */
+function jennyGroundZ(x: number, clearance = 0): number {
+  return (
+    (-JENNY_REST_HEIGHT - x * Math.sin(JENNY_REST_PITCH) + clearance) /
+    Math.cos(JENNY_REST_PITCH)
+  );
+}
+
+/** 4.3 inches across, which is the printed wheel in the box. */
+const JENNY_WHEEL_RADIUS = (4.3 * 0.0254) / 2;
+const JENNY_WHEEL_X = 0.1;
+const JENNY_WHEEL_Y = 0.15;
+// The tyre is a twelve-sided polygon, and at twelve degrees nose-up the vertex
+// that meets the ground is the one straight below the hub in the body frame,
+// which is a radius times the cosine of the pitch from the ground plane.
+const JENNY_WHEEL_Z = jennyGroundZ(
+  JENNY_WHEEL_X,
+  JENNY_WHEEL_RADIUS * Math.cos(JENNY_REST_PITCH),
+);
+const JENNY_SKID_X = -0.62;
+const JENNY_SKID_RADIUS = 0.006;
+
+/** The tailplane, and where the elevator hinges in it. */
+const JENNY_TAIL_Z = 0.022;
+const JENNY_TAIL_HALF_SPAN = 0.22;
+const JENNY_TAIL_ROOT_GAP = 0.01;
+const JENNY_TAIL_LEADING = -0.48;
+const JENNY_ELEVATOR_HINGE_X = -0.59;
+const JENNY_ELEVATOR_TRAIL = -0.655;
+
+/**
+ * The fuselage, radiator to tail post.
+ *
+ * A slab-sided box with a rounded decking over it, deepest at the cockpits and
+ * tapering to a post under the rudder, a metre long with the propeller and the
+ * rudder on its two ends — the kit's 41 inches. The first two stations are the
+ * cowl.
+ */
+const JENNY_BODY: readonly BlenderRing[] = [
+  { x: 0.345, halfWidth: 0.05, top: 0.058, bottom: -0.076 },
+  { x: 0.29, halfWidth: 0.054, top: 0.065, bottom: -0.09 },
+  { x: 0.18, halfWidth: 0.056, top: 0.072, bottom: -0.1 },
+  { x: 0.05, halfWidth: 0.056, top: 0.075, bottom: -0.104 },
+  { x: -0.1, halfWidth: 0.054, top: 0.072, bottom: -0.1 },
+  { x: -0.25, halfWidth: 0.046, top: 0.062, bottom: -0.082 },
+  { x: -0.4, halfWidth: 0.035, top: 0.047, bottom: -0.058 },
+  { x: -0.53, halfWidth: 0.023, top: 0.033, bottom: -0.034 },
+  { x: -0.645, halfWidth: 0.01, top: 0.024, bottom: -0.012 },
+];
+/** Stations from the front that are the metal cowl rather than fabric. */
+const JENNY_COWL_RINGS = 3;
+const JENNY_TAIL_POST: Point = [-0.66, 0, 0.006];
+
+/** The decking's height at a station along the fuselage. */
+function jennyDeckZ(x: number): number {
+  for (let i = 0; i + 1 < JENNY_BODY.length; i += 1) {
+    const a = JENNY_BODY[i]!;
+    const b = JENNY_BODY[i + 1]!;
+    if (x <= a.x && x >= b.x) {
+      const t = (a.x - x) / (a.x - b.x);
+      return a.top + (b.top - a.top) * t;
+    }
+  }
+  return JENNY_BODY[JENNY_BODY.length - 1]!.top;
+}
+
+function buildJennyBody(cowl: PartBuilder, body: PartBuilder): void {
+  for (let i = 0; i + 1 < JENNY_BODY.length; i += 1) {
+    const part = i + 1 < JENNY_COWL_RINGS ? cowl : body;
+    const a = blenderRingPoints(JENNY_BODY[i]!);
+    const b = blenderRingPoints(JENNY_BODY[i + 1]!);
+    for (let k = 0; k < a.length; k += 1) {
+      const k2 = (k + 1) % a.length;
+      part.quad(a[k]!, a[k2]!, b[k2]!, b[k]!);
+    }
+  }
+  // The nose is closed by the radiator, so the cowl ends in a flat face.
+  const front = blenderRingPoints(JENNY_BODY[0]!);
+  for (let k = 1; k + 1 < front.length; k += 1) {
+    cowl.triangle(front[0]!, front[k + 1]!, front[k]!);
+  }
+  const back = blenderRingPoints(JENNY_BODY[JENNY_BODY.length - 1]!);
+  for (let k = 0; k < back.length; k += 1) {
+    body.triangle(JENNY_TAIL_POST, back[k]!, back[(k + 1) % back.length]!);
+  }
+}
+
+/**
+ * The OX-5's radiator, standing on the front of the cowl.
+ *
+ * The most recognisable thing on a Jenny from the front: a tall honeycomb block
+ * with the propeller shaft coming out below it, which is what the kit's nose
+ * piece is cut to look like.
+ */
+function buildJennyRadiator(radiator: PartBuilder): void {
+  radiator.box([0.345, -0.044, 0.0], [0.357, 0.044, 0.066]);
+  radiator.box([0.345, -0.012, -0.024], [0.362, 0.012, 0.002]);
+}
+
+/**
+ * The two open cockpits, one behind the other.
+ *
+ * A Jenny was a trainer, so it has two: the front one under the upper wing's
+ * trailing edge, and the rear one behind it, which is where it was flown from
+ * and where the camera goes.
+ */
+const JENNY_COCKPITS: readonly (readonly [number, number])[] = [
+  [-0.11, -0.19],
+  [-0.25, -0.33],
+];
+
+function buildJennyCockpits(coaming: PartBuilder): void {
+  for (const [front, back] of JENNY_COCKPITS) {
+    const z = Math.max(jennyDeckZ(front), jennyDeckZ(back)) + 0.002;
+    const opening: Point[] = [];
+    const segments = 10;
+    const halfLength = (front - back) / 2;
+    const middle = (front + back) / 2;
+    for (let i = 0; i < segments; i += 1) {
+      const a = (i / segments) * Math.PI * 2;
+      opening.push([
+        middle + Math.cos(a) * halfLength,
+        Math.sin(a) * 0.034,
+        z,
+      ]);
+    }
+    coaming.plate(opening, 0.004, 2);
+  }
+}
+
+/** The camera, in the rear cockpit, where a Jenny was flown from. */
+function buildJennyCamera(body: PartBuilder, lens: PartBuilder): void {
+  const x0 = -0.305;
+  const x1 = -0.27;
+  const zBottom = jennyDeckZ(x0) - 0.004;
+  const zTop = zBottom + 0.03;
+  body.box([x0, -0.014, zBottom], [x1, 0.014, zTop]);
+  const glass: Point[] = [
+    [x1 + 0.002, -0.009, zBottom + 0.007],
+    [x1 + 0.006, -0.009, zTop - 0.006],
+    [x1 + 0.006, 0.009, zTop - 0.006],
+    [x1 + 0.002, 0.009, zBottom + 0.007],
+  ];
+  lens.plate(glass, 0.004, 0);
+}
+
+/** Where the interplane struts stand, out along the lower wing. */
+const JENNY_STRUT_SPANS = [0.27, 0.53] as const;
+/** Fractions of the chord the front and rear spars are at. */
+const JENNY_SPARS = [0.22, 0.7] as const;
+
+/** A point on the front or rear spar of a wing, at a span position. */
+function jennySpar(
+  leading: number,
+  base: number,
+  fraction: number,
+  y: number,
+  lift: number,
+): Point {
+  return [leading - JENNY_CHORD * fraction, y, jennyWingZ(base, y) + lift];
+}
+
+/**
+ * Struts, cabanes and the cord between them.
+ *
+ * Two bays a side, which is what makes a Jenny a Jenny rather than a smaller
+ * biplane: a pair of wooden posts at each of two stations out along the lower
+ * wing, leaning forward with the stagger, and a pair of cabanes over the
+ * fuselage. Every bay is crossed with cord in the plane of each spar, and the
+ * overhang past the outer struts hangs from a king post on top of the upper
+ * wing — twenty-four feet of it in the kit, and on this aeroplane it is what
+ * holds the wings in formation rather than decoration.
+ */
+function buildJennyRigging(struts: PartBuilder, wires: PartBuilder): void {
+  const lowerTop = 0.008;
+  const upperBottom = -0.003;
+  const wire = 0.0011;
+  for (const sign of [1, -1] as const) {
+    for (const fraction of JENNY_SPARS) {
+      const upper = (y: number) =>
+        jennySpar(
+          JENNY_TOP_LEADING,
+          JENNY_TOP_Z,
+          fraction,
+          y * sign,
+          upperBottom,
+        );
+      const lower = (y: number) =>
+        jennySpar(
+          JENNY_LOWER_LEADING,
+          JENNY_LOWER_Z,
+          fraction,
+          y * sign,
+          lowerTop,
+        );
+
+      for (const y of JENNY_STRUT_SPANS) {
+        buildRoundStrut(struts, lower(y), upper(y), 0.0045);
+      }
+
+      // The cabanes, from the top longerons up to the centre section.
+      const cabaneFoot: Point = [
+        JENNY_TOP_LEADING - JENNY_CHORD * fraction - 0.01,
+        0.045 * sign,
+        jennyDeckZ(JENNY_TOP_LEADING - JENNY_CHORD * fraction) - 0.012,
+      ];
+      buildRoundStrut(struts, cabaneFoot, upper(0.075), 0.004);
+
+      // Cross-bracing in both bays, and up from the fuselage to the inner
+      // struts, which is where a flying wire takes the wing's lift.
+      const stations = [0.06, ...JENNY_STRUT_SPANS];
+      for (let i = 0; i + 1 < stations.length; i += 1) {
+        const inner = stations[i]!;
+        const outer = stations[i + 1]!;
+        buildRoundStrut(wires, lower(inner), upper(outer), wire, 4);
+        buildRoundStrut(wires, upper(inner), lower(outer), wire, 4);
+      }
+
+      // The king post over the outer strut, and the overhang hung from it.
+      const outer = JENNY_STRUT_SPANS[1];
+      const postFoot = jennySpar(
+        JENNY_TOP_LEADING,
+        JENNY_TOP_Z,
+        fraction,
+        outer * sign,
+        0.012,
+      );
+      const postTop: Point = [postFoot[0], postFoot[1], postFoot[2] + 0.05];
+      buildRoundStrut(struts, postFoot, postTop, 0.003);
+      for (const y of [0.33, 0.71]) {
+        buildRoundStrut(
+          wires,
+          postTop,
+          jennySpar(JENNY_TOP_LEADING, JENNY_TOP_Z, fraction, y * sign, 0.011),
+          wire,
+          4,
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Fin, rudder and tailplane.
+ *
+ * The Jenny's rudder is the tall rounded one that is most of the vertical
+ * tail, standing on a small fin; it is drawn as one piece with the fin — the
+ * flight model spends its hinged surfaces on the elevator — and wears the
+ * 1918 stripes, blue, white and red from the hinge back.
+ */
+const JENNY_FIN: readonly Point[] = [
+  [-0.47, 0, 0.03],
+  [-0.56, 0, 0.1],
+  [-0.6, 0, 0.175],
+  [-0.625, 0, 0.198],
+  [-0.65, 0, 0.196],
+  [-0.668, 0, 0.17],
+  [-0.676, 0, 0.11],
+  [-0.676, 0, 0.03],
+  [-0.664, 0, -0.012],
+  [-0.62, 0, 0.0],
+];
+const JENNY_RUDDER_HINGE_X = -0.616;
+
+/** Top and bottom of the fin's outline at a station along the fuselage. */
+function jennyFinSpan(x: number): readonly [number, number] {
+  const heights: number[] = [];
+  for (let i = 0; i < JENNY_FIN.length; i += 1) {
+    const a = JENNY_FIN[i]!;
+    const b = JENNY_FIN[(i + 1) % JENNY_FIN.length]!;
+    if ((x - a[0]) * (x - b[0]) > 0 || a[0] === b[0]) continue;
+    const t = (x - a[0]) / (b[0] - a[0]);
+    heights.push(a[2] + (b[2] - a[2]) * t);
+  }
+  return [Math.min(...heights), Math.max(...heights)];
+}
+
+function buildJennyTail(tail: PartBuilder): void {
+  tail.plate([...JENNY_FIN], 0.006, 1);
+
+  const z = JENNY_TAIL_Z;
+  const span = JENNY_TAIL_HALF_SPAN;
+  const hinge = JENNY_ELEVATOR_HINGE_X;
+  const stabiliser: Point[] = [
+    [JENNY_TAIL_LEADING, 0, z],
+    [JENNY_TAIL_LEADING - 0.02, span * 0.6, z],
+    [JENNY_TAIL_LEADING - 0.05, span * 0.9, z],
+    [hinge + 0.02, span, z],
+    [hinge, span, z],
+    [hinge, -span, z],
+    [hinge + 0.02, -span, z],
+    [JENNY_TAIL_LEADING - 0.05, -span * 0.9, z],
+    [JENNY_TAIL_LEADING - 0.02, -span * 0.6, z],
+  ];
+  tail.plate(stabiliser, 0.008, 2);
+}
+
+/** The rudder's three stripes, a hair proud of the fin on both sides. */
+function buildJennyRudderStripes(
+  blue: PartBuilder,
+  white: PartBuilder,
+  red: PartBuilder,
+): void {
+  const back = -0.676;
+  const width = (JENNY_RUDDER_HINGE_X - back) / 3;
+  const bands = [blue, white, red];
+  for (let i = 0; i < bands.length; i += 1) {
+    // Kept a whisker inside the outline at both ends so a band never pokes
+    // past the edge of the rudder it is painted on.
+    const x0 = JENNY_RUDDER_HINGE_X - i * width - 0.0005;
+    const x1 = JENNY_RUDDER_HINGE_X - (i + 1) * width + 0.0005;
+    const steps = 3;
+    const top: Point[] = [];
+    const bottom: Point[] = [];
+    for (let s = 0; s <= steps; s += 1) {
+      const x = x0 + ((x1 - x0) * s) / steps;
+      const [low, high] = jennyFinSpan(x);
+      top.push([x, 0, high - 0.002]);
+      bottom.push([x, 0, low + 0.002]);
+    }
+    bands[i]!.plate([...top, ...bottom.reverse()], 0.0075, 1);
+  }
+}
+
+/**
+ * One half of the elevator, in a frame whose origin sits on its hinge.
+ *
+ * Rounded at the tip and cut away at the root for the rudder to swing in.
+ */
+function buildJennyElevator(part: PartBuilder, sign: number): void {
+  const inner = JENNY_TAIL_ROOT_GAP * sign;
+  const outer = JENNY_TAIL_HALF_SPAN * sign;
+  const trail = JENNY_ELEVATOR_TRAIL - JENNY_ELEVATOR_HINGE_X;
+  const outline: Point[] = [
+    [0, inner, 0],
+    [0, outer, 0],
+    [trail * 0.6, outer * 0.97, 0],
+    [trail, outer * 0.85, 0],
+    [trail, 0.05 * sign, 0],
+    [trail * 0.5, inner, 0],
+  ];
+  part.plate(outline, 0.007, 2);
+}
+
+/**
+ * The undercarriage: two wheels on V legs, a spreader bar, and a skid.
+ *
+ * The kit's two thick wires bent into a V a side, hanging the 4.3-inch wheels
+ * ahead of the centre of gravity, with the axle running across between them as
+ * the JN-4's did; and a skid under the rudder post, which is the third point
+ * the aeroplane stands on and what puts its wings at twelve degrees.
+ */
+function buildJennyGear(legs: PartBuilder, tyres: PartBuilder): void {
+  for (const sign of [1, -1] as const) {
+    const y = JENNY_WHEEL_Y * sign;
+    const hub: Point = [JENNY_WHEEL_X, y - 0.018 * sign, JENNY_WHEEL_Z];
+    buildRoundStrut(legs, [0.21, 0.046 * sign, -0.094], hub, 0.0035);
+    buildRoundStrut(legs, [0.0, 0.046 * sign, -0.1], hub, 0.0035);
+    buildWheel(
+      tyres,
+      JENNY_WHEEL_X,
+      y,
+      JENNY_WHEEL_Z,
+      JENNY_WHEEL_RADIUS,
+      0.028,
+    );
+  }
+  buildRoundStrut(
+    legs,
+    [JENNY_WHEEL_X, (JENNY_WHEEL_Y - 0.018), JENNY_WHEEL_Z],
+    [JENNY_WHEEL_X, -(JENNY_WHEEL_Y - 0.018), JENNY_WHEEL_Z],
+    0.004,
+  );
+
+  // The skid: a post down from the tail and a runner on the end of it lying
+  // along the ground, a radius up so that its underside is on it. Eight sides
+  // so that one of them faces straight down.
+  const runnerFront: Point = [
+    JENNY_SKID_X + 0.02,
+    0,
+    jennyGroundZ(JENNY_SKID_X + 0.02, JENNY_SKID_RADIUS),
+  ];
+  const runnerBack: Point = [
+    JENNY_SKID_X - 0.02,
+    0,
+    jennyGroundZ(JENNY_SKID_X - 0.02, JENNY_SKID_RADIUS),
+  ];
+  buildRoundStrut(legs, [-0.575, 0, -0.03], runnerFront, 0.0045);
+  buildRoundStrut(legs, runnerFront, runnerBack, JENNY_SKID_RADIUS, 8);
+}
+
+/**
+ * The 1918 roundel: red outside, blue, and white in the middle.
+ *
+ * On top of the upper wing out near each tip and under the lower one, laid
+ * over the skin rather than cut into it: every ring is lifted onto the wing's
+ * own section, so it follows the curve of the fold instead of standing off it
+ * as a flat disc.
+ */
+function buildJennyRoundel(
+  plan: Planform,
+  centreX: number,
+  centreY: number,
+  top: boolean,
+  rings: readonly PartBuilder[],
+): void {
+  const radii = [0.062, 0.042, 0.02];
+  const segments = 16;
+  const surface = (x: number, y: number, lift: number): Point => {
+    const station = stationAt(plan, y);
+    const chord = station.leading - station.trailing;
+    const f = (station.leading - x) / chord;
+    const profile = top ? plan.upper(f) : plan.lower(f);
+    const z = station.z + profile * station.thickness;
+    return [x, y, z + (top ? lift : -lift)];
+  };
+  for (let r = 0; r < radii.length; r += 1) {
+    const part = rings[r]!;
+    const outer = radii[r]!;
+    const inner = radii[r + 1] ?? 0;
+    const lift = 0.0012 + r * 0.0005;
+    for (let i = 0; i < segments; i += 1) {
+      const a0 = (i / segments) * Math.PI * 2;
+      const a1 = ((i + 1) / segments) * Math.PI * 2;
+      const o0 = surface(
+        centreX + Math.cos(a0) * outer,
+        centreY + Math.sin(a0) * outer,
+        lift,
+      );
+      const o1 = surface(
+        centreX + Math.cos(a1) * outer,
+        centreY + Math.sin(a1) * outer,
+        lift,
+      );
+      const i0 = surface(
+        centreX + Math.cos(a0) * inner,
+        centreY + Math.sin(a0) * inner,
+        lift,
+      );
+      const i1 = surface(
+        centreX + Math.cos(a1) * inner,
+        centreY + Math.sin(a1) * inner,
+        lift,
+      );
+      // Anticlockwise seen from above faces up; the underside winds back.
+      if (top) part.quad(i0, o0, o1, i1);
+      else part.quad(i0, i1, o1, o0);
+    }
+  }
+}
+
+/** The propeller, in its own frame with the hub at zero. */
+function buildJennyPropeller(prop: PartBuilder, hub: PartBuilder): void {
+  const radius = JENNY_PROP_RADIUS;
+  // Two broad blades, a foot across: the Jenny's own was laminated wood, and
+  // the kit's 12x4.5 is about the same shape in plastic.
+  const blade = (direction: 1 | -1): Point[] => {
+    const points: Point[] = [
+      [0, 0.016, 0.022 * direction],
+      [0, 0.024, 0.078 * direction],
+      [0, 0.013, radius * direction],
+      [0, -0.012, radius * 0.94 * direction],
+      [0, -0.02, 0.072 * direction],
+      [0, -0.014, 0.02 * direction],
+    ];
+    return direction === 1 ? points : points.slice().reverse();
+  };
+  prop.plate(blade(1), 0.007, 0);
+  prop.plate(blade(-1), 0.007, 0);
+
+  const segments = 10;
+  const hubRadius = 0.016;
+  for (let i = 0; i < segments; i += 1) {
+    const a0 = (i / segments) * Math.PI * 2;
+    const a1 = ((i + 1) / segments) * Math.PI * 2;
+    hub.triangle(
+      [0.018, 0, 0],
+      [0, Math.cos(a0) * hubRadius, Math.sin(a0) * hubRadius],
+      [0, Math.cos(a1) * hubRadius, Math.sin(a1) * hubRadius],
+    );
+    hub.triangle(
+      [0, 0, 0],
+      [0, Math.cos(a1) * hubRadius, Math.sin(a1) * hubRadius],
+      [0, Math.cos(a0) * hubRadius, Math.sin(a0) * hubRadius],
+    );
+  }
+}
+
+let cachedJenny: AircraftMesh | null = null;
+
+/** Builds (once) and returns the FT Jenny XL mesh. */
+export function buildJennyMesh(): AircraftMesh {
+  if (cachedJenny) return cachedJenny;
+
+  const top = new PartBuilder("jenny-top", JENNY_LINEN, PAINT.Shell);
+  const bottom = new PartBuilder(
+    "jenny-bottom",
+    JENNY_LINEN_BOTTOM,
+    PAINT.Shell,
+    JENNY_BOTTOM_SHADE,
+  );
+  const body = new PartBuilder("jenny-fuselage", JENNY_DRAB, PAINT.Accent);
+  const tail = new PartBuilder(
+    "jenny-tail",
+    JENNY_LINEN,
+    PAINT.Shell,
+    JENNY_TAIL_SHADE,
+  );
+  const cowl = new PartBuilder("jenny-cowl", JENNY_COWL);
+  const radiator = new PartBuilder("jenny-radiator", MOTOR);
+  const coaming = new PartBuilder("jenny-cockpits", MOTOR);
+  const struts = new PartBuilder("jenny-struts", JENNY_WOOD);
+  const wires = new PartBuilder("jenny-wires", JENNY_WIRE);
+  const legs = new PartBuilder("jenny-gear", MOTOR);
+  const tyres = new PartBuilder("jenny-tyres", JENNY_TYRE);
+  const lens = new PartBuilder("jenny-lens", LENS);
+  const red = new PartBuilder("jenny-red", JENNY_RED);
+  const white = new PartBuilder("jenny-white", JENNY_WHITE);
+  const blue = new PartBuilder("jenny-blue", JENNY_BLUE);
+  const propeller = new PartBuilder("jenny-propeller", JENNY_WOOD);
+  const hub = new PartBuilder("jenny-hub", MOTOR);
+  const aileronLeft = new PartBuilder(
+    "jenny-aileron-left",
+    JENNY_LINEN,
+    PAINT.Shell,
+  );
+  const aileronRight = new PartBuilder(
+    "jenny-aileron-right",
+    JENNY_LINEN,
+    PAINT.Shell,
+  );
+  const aileronUnderLeft = new PartBuilder(
+    "jenny-aileron-left-bottom",
+    JENNY_LINEN_BOTTOM,
+    PAINT.Shell,
+    JENNY_BOTTOM_SHADE,
+  );
+  const aileronUnderRight = new PartBuilder(
+    "jenny-aileron-right-bottom",
+    JENNY_LINEN_BOTTOM,
+    PAINT.Shell,
+    JENNY_BOTTOM_SHADE,
+  );
+  const elevatorLeft = new PartBuilder(
+    "jenny-elevator-left",
+    JENNY_LINEN,
+    PAINT.Shell,
+    JENNY_TAIL_SHADE,
+  );
+  const elevatorRight = new PartBuilder(
+    "jenny-elevator-right",
+    JENNY_LINEN,
+    PAINT.Shell,
+    JENNY_TAIL_SHADE,
+  );
+
+  buildWing(JENNY_TOP_PLANFORM, top, bottom);
+  buildWing(JENNY_LOWER_PLANFORM, top, bottom);
+  buildElevon(JENNY_TOP_PLANFORM, aileronLeft, 1, aileronUnderLeft);
+  buildElevon(JENNY_TOP_PLANFORM, aileronRight, -1, aileronUnderRight);
+  buildJennyBody(cowl, body);
+  buildJennyRadiator(radiator);
+  buildJennyCockpits(coaming);
+  buildJennyCamera(body, lens);
+  buildJennyRigging(struts, wires);
+  buildJennyTail(tail);
+  buildJennyRudderStripes(blue, white, red);
+  buildJennyElevator(elevatorLeft, 1);
+  buildJennyElevator(elevatorRight, -1);
+  buildJennyGear(legs, tyres);
+  const roundelRings = [red, blue, white] as const;
+  const topRoundelX = JENNY_TOP_LEADING - JENNY_CHORD / 2;
+  const lowerRoundelX = JENNY_LOWER_LEADING - JENNY_CHORD / 2;
+  for (const sign of [1, -1] as const) {
+    buildJennyRoundel(
+      JENNY_TOP_PLANFORM,
+      topRoundelX,
+      0.6 * sign,
+      true,
+      roundelRings,
+    );
+    buildJennyRoundel(
+      JENNY_LOWER_PLANFORM,
+      lowerRoundelX,
+      0.44 * sign,
+      false,
+      roundelRings,
+    );
+  }
+  buildJennyPropeller(propeller, hub);
+
+  // The ailerons are drawn where they sit and stay there, as on every other
+  // aeroplane here with a tail: the surface the pilot watches move is the
+  // elevator.
+  const ailerons = [
+    aileronLeft.build(),
+    aileronUnderLeft.build(),
+    aileronRight.build(),
+    aileronUnderRight.build(),
+  ]
+    .filter((part): part is MeshPart => part !== null)
+    .map((part) => translated(part, JENNY_HINGE_X, 0, JENNY_HINGE_Z));
+  const parts = [
+    ...[
+      top,
+      bottom,
+      body,
+      tail,
+      cowl,
+      radiator,
+      coaming,
+      struts,
+      wires,
+      legs,
+      tyres,
+      lens,
+      red,
+      white,
+      blue,
+    ]
+      .map((builder) => builder.build())
+      .filter((part): part is MeshPart => part !== null),
+    ...ailerons,
+  ];
+
+  const propellerParts = [propeller.build(), hub.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const propellers: PropellerGroup[] = [
+    {
+      name: "jenny-propeller",
+      origin: [JENNY_PROP_X, 0, JENNY_PROP_AXIS_Z],
+      axis: "x",
+      direction: 1,
+      parts: propellerParts,
+    },
+  ];
+
+  const leftParts = [elevatorLeft.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const rightParts = [elevatorRight.build()].filter(
+    (part): part is MeshPart => part !== null,
+  );
+  const staticParts = [
+    ...parts,
+    ...[...leftParts, ...rightParts].map((part) =>
+      translated(part, JENNY_ELEVATOR_HINGE_X, 0, JENNY_TAIL_Z),
+    ),
+  ];
+
+  const triangleCount =
+    [...parts, ...propellerParts, ...leftParts, ...rightParts].reduce(
+      (sum, part) => sum + part.indices.length,
+      0,
+    ) / 3;
+
+  cachedJenny = {
+    kind: MESH_KIND.Jenny,
+    referenceSpan: MESH_JENNY_SPAN,
+    parts,
+    propellers,
+    elevonParts: { left: leftParts, right: rightParts },
+    elevonOrigin: [JENNY_ELEVATOR_HINGE_X, 0, JENNY_TAIL_Z],
+    staticParts,
+    // In the rear cockpit, looking forward over the front one and under the
+    // upper wing's trailing edge: the view a Jenny was flown by.
+    fpvCamera: {
+      offset: [-0.262, 0, jennyDeckZ(-0.29) + 0.016],
+      tiltDegrees: 8,
+    },
+    triangleCount,
+  };
+  return cachedJenny;
+}
+
 /** The geometry for one kind of airframe. */
 export function meshOfKind(kind: MeshKind): AircraftMesh {
   if (kind === MESH_KIND.Quad) return buildQuadMesh();
@@ -5374,6 +6913,8 @@ export function meshOfKind(kind: MeshKind): AircraftMesh {
   if (kind === MESH_KIND.Triplane) return buildTriplaneMesh();
   if (kind === MESH_KIND.P38) return buildP38Mesh();
   if (kind === MESH_KIND.Biplane) return buildBabyBlenderMesh();
+  if (kind === MESH_KIND.C47) return buildC47Mesh();
+  if (kind === MESH_KIND.Jenny) return buildJennyMesh();
   return buildAircraftMesh();
 }
 
@@ -5396,6 +6937,8 @@ export function meshKindFor(config: AircraftConfig): MeshKind {
   if (config.shape === "triplane") return MESH_KIND.Triplane;
   if (config.shape === "p38") return MESH_KIND.P38;
   if (config.shape === "biplane") return MESH_KIND.Biplane;
+  if (config.shape === "c47") return MESH_KIND.C47;
+  if (config.shape === "jenny") return MESH_KIND.Jenny;
   return config.shape === "x8" ? MESH_KIND.X8 : MESH_KIND.Wing;
 }
 

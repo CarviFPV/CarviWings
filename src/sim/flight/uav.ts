@@ -34,6 +34,8 @@ import {
   CA35_160,
   FOAM_GLIDER,
   FT_BABY_BLENDER,
+  FT_C47,
+  FT_JENNY_XL,
   FT_P38_LIGHTNING,
   FT_TRIPLANE_XL,
   PLAYER_WING,
@@ -694,6 +696,178 @@ const BABY_BLENDER_BATTERIES: readonly BatterySpec[] = [
 ];
 
 /**
+ * Motor, ESC and propeller combinations for the FT C-47.
+ *
+ * Everything here is two of it, as on the P-38: `count` multiplies the thrust,
+ * the disc and the weight, and the `escAmps` quoted is both controllers
+ * together because that is what is bolted into the nacelles.
+ *
+ * The kit calls for the Power Pack B v.2 Twin, and the first two entries are
+ * that pack on the two cell counts the listing names: two FT Radial 2212
+ * KV1050 motors, two 25 A controllers and the 9x4.5 blades in the box, on the
+ * 3S the aeroplane is flown on at scale and on the 4S that "will enable you to
+ * power out of danger". The arithmetic in `powerplant.ts` agrees with Flite
+ * Test that the same hardware takes both — four cells on the nine-inch blade
+ * ask for 47 A standing still, inside the 50 A of controller — and nearly
+ * doubles the thrust for it.
+ *
+ * The third is the ten-inch blade on three cells, which is a common swap on
+ * the Power Pack B motors and buys pull without any more top end. And the
+ * fourth is the Power Pack C Twin from the P-38, the size up, which is the
+ * conversion for somebody who wants a C-47 that climbs like a fighter and is
+ * no longer a C-47 to fly.
+ */
+const C47_MOTORS: readonly MotorSpec[] = [
+  {
+    id: "radial2212-1050-9x4.5-3s",
+    motor: "FT Radial 2212 KV1050",
+    kv: 1050,
+    escAmps: 50,
+    propDiameter: 9,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.088,
+    count: 2,
+    summary: "2 × 25 A · 9×4.5 · 3S — Power Pack B Twin, as delivered",
+  },
+  {
+    id: "radial2212-1050-9x4.5-4s",
+    motor: "FT Radial 2212 KV1050",
+    kv: 1050,
+    escAmps: 50,
+    propDiameter: 9,
+    propPitch: 4.5,
+    cells: { min: 4, max: 4 },
+    massKg: 0.088,
+    count: 2,
+    summary: "2 × 25 A · 9×4.5 · 4S — power out of danger",
+  },
+  {
+    id: "radial2212-1050-10x4.5",
+    motor: "FT Radial 2212 KV1050",
+    kv: 1050,
+    escAmps: 50,
+    propDiameter: 10,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.09,
+    count: 2,
+    summary: "2 × 25 A · 10×4.5 · 3S — more pull, same top end",
+  },
+  {
+    id: "radial2218-1180-10x4.5",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 80,
+    propDiameter: 10,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.117,
+    count: 2,
+    summary: "2 × 40 A · 10×4.5 · 3S — Power Pack C Twin conversion",
+  },
+];
+
+/**
+ * Packs that go under a C-47's hatch.
+ *
+ * The 2200 mAh 3S is the one the listing recommends and the one the aeroplane
+ * is balanced around: it goes in the nose, ahead of the wing, and is most of
+ * what puts the centre of gravity 63.5 mm behind the leading edge. The 3300 is
+ * the other capacity the listing quotes, and on a transport flown at a scale
+ * speed it is worth half as long again in the air. The two four-cell packs are
+ * the power the box promises, and pay for it in minutes.
+ */
+const C47_BATTERIES: readonly BatterySpec[] = [
+  { id: "3s-2200", cells: 3, capacityMah: 2200, cRating: 35, massKg: 0.185 },
+  { id: "3s-3300", cells: 3, capacityMah: 3300, cRating: 30, massKg: 0.27 },
+  { id: "4s-2200", cells: 4, capacityMah: 2200, cRating: 35, massKg: 0.245 },
+  { id: "4s-3300", cells: 4, capacityMah: 3300, cRating: 30, massKg: 0.35 },
+];
+
+/**
+ * Motor, ESC and propeller combinations for the FT Jenny XL.
+ *
+ * The XL Power Pack is the triplane's, to the part number: an FT 2814 KV1100,
+ * the 12x4.5 CCW the listing names, and a 40 A controller. The controller is
+ * quoted at 60 A for the reason the triplane's is: Flite Test's forty is a
+ * burst rating, and the figure this simulator quotes is what the combination
+ * asks for standing still with the stick open.
+ *
+ * The second is the 11x5.5 on the same motor, for the half of "built to fly
+ * fast and fly slow" the kit's blade does not do: less pull and the most top
+ * end this airframe has on three cells. The third is Power Pack C one size
+ * down, the 2218 on a ten-inch blade, which is still more than its weight in
+ * thrust on an aeroplane this light and turns a flight into a long one. And the
+ * fourth is the four-cell conversion on a twelve-by-six, which is the same
+ * aeroplane going faster and nothing it was drawn to do.
+ */
+const JENNY_MOTORS: readonly MotorSpec[] = [
+  {
+    id: "ft2814-1100-12x4.5",
+    motor: "FT 2814 KV1100",
+    kv: 1100,
+    escAmps: 60,
+    propDiameter: 12,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.093,
+    summary: "60 A · 12×4.5 · 3S — the XL Power Pack, as delivered",
+  },
+  {
+    id: "ft2814-1100-11x5.5",
+    motor: "FT 2814 KV1100",
+    kv: 1100,
+    escAmps: 50,
+    propDiameter: 11,
+    propPitch: 5.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.093,
+    summary: "50 A · 11×5.5 · 3S — to fly it fast",
+  },
+  {
+    id: "radial2218-1180-10x4.5",
+    motor: "FT Radial 2218 KV1180",
+    kv: 1180,
+    escAmps: 40,
+    propDiameter: 10,
+    propPitch: 4.5,
+    cells: { min: 3, max: 3 },
+    massKg: 0.117,
+    summary: "40 A · 10×4.5 · 3S — Power Pack C, gentler and longer",
+  },
+  {
+    id: "2814-800-12x6-4s",
+    motor: "2814 KV800",
+    kv: 800,
+    escAmps: 60,
+    propDiameter: 12,
+    propPitch: 6,
+    cells: { min: 4, max: 4 },
+    massKg: 0.098,
+    summary: "60 A · 12×6 · 4S — the four-cell conversion",
+  },
+];
+
+/**
+ * Packs that go into a Jenny XL's nose.
+ *
+ * The 3300 mAh 3S is the kit's, and the aeroplane is balanced around it: it
+ * sits on its own shelf in the forward fuselage and is most of what puts the
+ * centre of gravity 2.2 inches behind the top wing's leading edge. The 2200 is
+ * eighty grams off the lightest-loaded aeroplane here and a shorter flight;
+ * the 5000 is the other way, a slow scale flight of half an hour. The two
+ * four-cell packs are for the conversion.
+ */
+const JENNY_BATTERIES: readonly BatterySpec[] = [
+  { id: "3s-2200", cells: 3, capacityMah: 2200, cRating: 35, massKg: 0.185 },
+  { id: "3s-3300", cells: 3, capacityMah: 3300, cRating: 30, massKg: 0.265 },
+  { id: "3s-5000", cells: 3, capacityMah: 5000, cRating: 25, massKg: 0.39 },
+  { id: "4s-2200", cells: 4, capacityMah: 2200, cRating: 35, massKg: 0.245 },
+  { id: "4s-3300", cells: 4, capacityMah: 3300, cRating: 30, massKg: 0.35 },
+];
+
+/**
  * Engines, propellers and tanks for the Skyeye series.
  *
  * A different kind of catalogue, and it is the `combustion` block that makes it
@@ -1279,8 +1453,8 @@ export const X10_INTERCEPTOR_UAV: Uav = {
  * which is a brisk walk; and it will not be flown anywhere in a hurry. What it
  * does instead is fly at all in places nothing else here can — it is off the
  * ground in a dozen metres and down again in as few, and on the lightest wing
- * loading in the hangar a gust is something to be enjoyed rather than
- * survived.
+ * loading in the hangar bar the Jenny XL's a gust is something to be enjoyed
+ * rather than survived.
  *
  * The other thing that is new is the undercarriage. There are aeroplanes here
  * on wheels already, but a Skyeye is a tricycle and this is a taildragger: it
@@ -1433,6 +1607,109 @@ export const FT_BABY_BLENDER_UAV: Uav = {
   batteries: BABY_BLENDER_BATTERIES,
   defaultMotorId: "radial2218-1180-10x4.5",
   defaultBatteryId: "3s-1800",
+};
+
+/**
+ * The FT C-47: a twin-engined transport, and the hangar's only one.
+ *
+ * Flite Test's Master Series Skytrain in water-resistant foam board, 60 inches
+ * across: the Douglas DC-3 in the olive drab it went to war in, two motors on
+ * a wing with the Douglas shape, a round fuselage a metre long and a tailwheel
+ * under the fin.
+ *
+ * Everything else in the hangar is flown somewhere quickly or flown at
+ * something. This is flown the way the kit's own page says to fly it: off a
+ * long runway, gently, in wide turns, at a scale speed. It has the largest
+ * static margin here, a roll rate nearer the survey wing's than the P-38's,
+ * more dihedral than any other Flite Test aeroplane in the hangar, and a
+ * little over its own weight in thrust on the three cells it is meant to be
+ * flown on — so it climbs away like a loaded transport rather than a fighter,
+ * and it goes back to level by itself when the stick is let go. Four cells are there for the moment that stops being enough.
+ *
+ * It is the second twin, and the other way round from the first. The P-38 is a
+ * fighter with two booms that tracks like a dart and rolls reluctantly; this is
+ * a transport with one fuselage that is built not to be thrown about at all.
+ */
+export const FT_C47_UAV: Uav = {
+  id: "ft-c47",
+  summary: "1.52 m foam twin transport, 1.51 kg, 58 km/h, and lots of runway",
+  config: FT_C47,
+  // The airframe without its motors or a pack: the board, plywood and skewers
+  // in the kit, the landing gear wire and three wheels, four nine-gram servos
+  // and the extensions the nacelles need, a receiver, and the camera and video
+  // transmitter in the cockpit. Flite Test do not publish a weight for this
+  // airframe, so it is built up from what goes into one. The motors, their
+  // controllers and the pack are added back by whatever is fitted.
+  dryMassKg: 1.15,
+  // A transport's rates. Roll is a little under what the airframe gives at
+  // cruise, so full stick is a command it can meet, and pitch is kept well
+  // inside the elevator, because a C-47 is flown by a pilot who wants to
+  // arrive with the aeroplane in one piece — and both get generous expo,
+  // because the stick is moved a little and often.
+  defaultRates: {
+    rollRate: 120,
+    pitchRate: 80,
+    rollExpo: 0.3,
+    pitchExpo: 0.3,
+  },
+  // Olive drab, with the white of the invasion stripes painted round its
+  // fuselage and wings for the night of the fifth of June.
+  defaultLivery: { shell: "#55573f", accent: "#efede5" },
+  motors: C47_MOTORS,
+  batteries: C47_BATTERIES,
+  defaultMotorId: "radial2212-1050-9x4.5-3s",
+  defaultBatteryId: "3s-2200",
+};
+
+/**
+ * The FT Jenny XL: the barnstormer, and the gentlest thing in the hangar.
+ *
+ * Flite Test's Curtiss JN-4 in laser-cut foam, 58.5 inches across: a long
+ * upper wing overhanging a short lower one, two bays of wooden struts a side
+ * strung with cord, a metre of fuselage with two cockpits in it, a radiator on
+ * the nose and a skid under the rudder.
+ *
+ * The Jenny was the aeroplane a generation of Americans learned to fly on,
+ * and then the one the barnstormers bought for nothing after the war and flew
+ * into every hay field in the country. This one is both of those. It has the
+ * lightest wing loading here, so it stalls slower than anything else with a
+ * wing and lands at a walk; more static margin than any other Flite Test
+ * aeroplane here bar the C-47, so it flies itself; and the triplane's whole
+ * power pack on half a kilo less aeroplane, so when the stick goes forward it
+ * goes straight up.
+ *
+ * It is the second biplane, and not a bigger Baby Blender. The Blender is two
+ * equal wings on the shortest arm in the hangar, built to snap roll; this is a
+ * long upper wing with a short one under it on a long arm, built to be flown
+ * slowly and in big, scale circles. The overhang is the whole difference: it is
+ * nearly twice the aspect ratio, and a third of the roll rate.
+ */
+export const FT_JENNY_XL_UAV: Uav = {
+  id: "ft-jenny-xl",
+  summary: "1.49 m foam biplane, 1.25 kg, 57 km/h, and delightfully slow",
+  config: FT_JENNY_XL,
+  // The kit at its published 2.7 lb with the battery, less the pack and the
+  // motor, plus the camera and video transmitter in the front cockpit that make
+  // it one of these. The motor and the pack are added back by whatever is
+  // fitted.
+  dryMassKg: 0.89,
+  // A scale trainer's rates. Roll is about what the airframe gives at a slow
+  // cruise, so full stick is a command it can meet, and pitch gets a little
+  // more than that because a Jenny loops — and both get the 25% expo Flite Test
+  // put on the Jenny they drew first.
+  defaultRates: {
+    rollRate: 110,
+    pitchRate: 80,
+    rollExpo: 0.25,
+    pitchExpo: 0.25,
+  },
+  // Clear-doped linen over the Signal Corps' olive drab, which is the
+  // military trainer the kit's own decal set paints it as.
+  defaultLivery: { shell: "#ddd0a8", accent: "#5a5a3a" },
+  motors: JENNY_MOTORS,
+  batteries: JENNY_BATTERIES,
+  defaultMotorId: "ft2814-1100-12x4.5",
+  defaultBatteryId: "3s-3300",
 };
 
 /**
@@ -1610,6 +1887,8 @@ export const UAVS: readonly Uav[] = [
   FT_TRIPLANE_XL_UAV,
   FT_P38_LIGHTNING_UAV,
   FT_BABY_BLENDER_UAV,
+  FT_C47_UAV,
+  FT_JENNY_XL_UAV,
   CA35_160_UAV,
   X10_INTERCEPTOR_UAV,
   SKYEYE_2600_UAV,

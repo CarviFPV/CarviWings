@@ -41,6 +41,8 @@ import { runSkyeyeTests } from "./skyeye.test";
 import { runTriplaneTests } from "./triplane.test";
 import { runP38Tests } from "./p38.test";
 import { runBabyBlenderTests } from "./babyBlender.test";
+import { runC47Tests } from "./c47.test";
+import { runJennyTests } from "./jenny.test";
 
 async function main(): Promise<void> {
   runMathTests();
@@ -87,6 +89,8 @@ async function main(): Promise<void> {
   runTriplaneTests();
   runP38Tests();
   runBabyBlenderTests();
+  runC47Tests();
+  runJennyTests();
   report();
 }
 

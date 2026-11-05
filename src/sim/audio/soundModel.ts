@@ -194,6 +194,23 @@ export const BABY_BLENDER_ENGINE: EngineProfile = {
 };
 
 /**
+ * The FT C-47, which is the lowest note of anything electric here.
+ *
+ * A pair of nine-inch two-bladers on 3S turning just under ten thousand at
+ * full throttle: three hundred and thirty hertz, a shade under the triplane's
+ * foot-wide blade. It is two motors heard as one for the same
+ * reason the P-38's are — one stick, one pack, one note — and it spends most
+ * of a flight well down from that, because a transport is flown on a part
+ * throttle and climbs on a little more of one.
+ */
+export const C47_ENGINE: EngineProfile = {
+  idleRpm: 1400,
+  maxRpm: 9900,
+  blades: 2,
+  propPitchSpeed: 18.9,
+};
+
+/**
  * The Skyeye series, which is not a motor at all and does not sound like one.
  *
  * A petrol two-stroke swinging a two-bladed propeller two feet across at seven
@@ -220,9 +237,15 @@ export function engineProfileFor(config: AircraftConfig): EngineProfile {
   if (config.shape === "rocket") return ROCKET_ENGINE;
   if (config.rotor) return QUAD_ENGINE;
   if (config.shape === "skyeye") return PISTON_ENGINE;
-  if (config.shape === "triplane") return TRIPLANE_ENGINE;
+  // The Jenny XL is the triplane's motor on the triplane's foot-wide blade, so
+  // it is the triplane's note: what decides a propeller's tone is the propeller
+  // and how fast it turns, and neither knows how many wings are behind it.
+  if (config.shape === "triplane" || config.shape === "jenny") {
+    return TRIPLANE_ENGINE;
+  }
   if (config.shape === "p38") return P38_ENGINE;
   if (config.shape === "biplane") return BABY_BLENDER_ENGINE;
+  if (config.shape === "c47") return C47_ENGINE;
   return config.shape === "glider" ? GLIDER_ENGINE : WING_ENGINE;
 }
 

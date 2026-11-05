@@ -284,7 +284,7 @@ export function wheeledGroundContact(
   config: AircraftConfig,
 ): GroundContactOptions {
   return {
-    restHeight: config.wingSpan / 12,
+    restHeight: config.gearHeight ?? config.wingSpan / 12,
     friction: 0.045,
     restPitch: 3 * DEG_TO_RAD,
     rotateRange: 9 * DEG_TO_RAD,
@@ -310,6 +310,8 @@ export function wheeledGroundContact(
  * triplane the centre of gravity sits on the *middle* wing with a whole wing
  * and an undercarriage beneath it, which is a fifth of the span off the ground
  * rather than a twelfth. It is where a Dr.I's middle wing actually stands.
+ * A low-winged taildragger has no wing beneath it at all, so it says how high
+ * its gear is with `gearHeight` instead, and that is what it is held at.
  *
  * `friction` is half again a tricycle's and for a plain reason: two of the
  * three points on the ground are wheels and the third is a skid, and a skid
@@ -321,7 +323,7 @@ export function taildraggerGroundContact(
   config: AircraftConfig,
 ): GroundContactOptions {
   return {
-    restHeight: config.wingSpan / 4.8,
+    restHeight: config.gearHeight ?? config.wingSpan / 4.8,
     friction: 0.07,
     restPitch: 12 * DEG_TO_RAD,
     // Nothing: it is already sitting on its tail, and no amount of back stick
