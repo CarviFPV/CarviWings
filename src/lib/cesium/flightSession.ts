@@ -1535,6 +1535,10 @@ export class FlightSession {
     }
     this.drawFlight();
     this.renderer.showEverything();
+    // The explosions are the one thing in the flight that is not on screen
+    // until something goes wrong, so nothing above has built them: left alone
+    // their shader is linked in the frame the first charge goes off.
+    this.explosionRenderer.prime();
 
     // The opening view is a different view from the one the tiles were
     // streamed for — the standoff the loading camera used is behind the spawn
@@ -2831,7 +2835,7 @@ export class FlightSession {
     // world took to finish arriving.
     if (!this.underWay || this.loading) return;
 
-    const now = performance.now();
+    const now = frameTime();
     const elapsedMs = this.lastFrameTime === 0 ? 16 : now - this.lastFrameTime;
     this.lastFrameTime = now;
     const dt = Math.min(elapsedMs / 1000, 0.25);
@@ -2871,7 +2875,13 @@ export class FlightSession {
         if (!this.paused) this.refreshLaunchSurface(dt);
         this.placePilotOnTheField();
       }
-      this.cameraRig.update(player, this.paused ? 0 : dt);
+      // The camera rides the pose the airframe is drawn at, not the last
+      // whole physics step: see `sim/engine/renderPose.ts`.
+      this.cameraRig.update(
+        player,
+        this.paused ? 0 : dt,
+        this.simulation.poseOf(player),
+      );
       // You cannot see your own airframe from inside the FPV camera.
       this.renderer.setVisible(player.id, !this.cameraRig.hidesOwnAircraft);
     }
@@ -2896,7 +2906,7 @@ export class FlightSession {
         this.renderer.setVisible(aircraft.id, false);
         continue;
       }
-      this.renderer.update(aircraft);
+      this.renderer.update(aircraft, this.simulation.poseOf(aircraft));
     }
     // Drawn even while paused, so a fireball is still on screen when the
     // mission-over panel comes up over it. The paper is the same: a slot that
@@ -3377,7 +3387,9 @@ export class FlightSession {
     view.index = position.index;
     view.count = position.count;
 
-    this.projectWorldPoint(target.position, view);
+    // The box goes round the aircraft where it is drawn, which between two
+    // physics steps is not quite where the flight model has it.
+    this.projectWorldPoint(this.simulation.poseOf(target).position, view);
     view.active = true;
     return view;
   }
@@ -3752,6 +3764,31 @@ function waitForTiles(
  * here is warming something up, so a frame that did not happen costs the
  * warm-up and nothing else.
  */
+/**
+ * The time this frame is for, milliseconds.
+ *
+ * Not the time this code happens to be running at. A frame is shown at the
+ * display's next refresh however early or late in the interval its script got
+ * to run, so the simulation has to be advanced by the spacing of the refreshes
+ * — and `performance.now()` read from inside the frame measures the spacing of
+ * the script instead, which wanders by a millisecond or two either way with
+ * whatever else the main thread was doing. Advancing the flight by that is
+ * moving it a little too far in one frame and a little short in the next, on a
+ * picture that is being shown at perfectly even intervals.
+ *
+ * The document timeline carries the frame's own timestamp — the one a
+ * `requestAnimationFrame` callback is handed — and can be read from anywhere
+ * inside the frame, which matters because this runs inside Cesium's render
+ * rather than in a callback of its own.
+ */
+function frameTime(): number {
+  if (typeof document !== "undefined") {
+    const time = document.timeline?.currentTime;
+    if (typeof time === "number" && Number.isFinite(time)) return time;
+  }
+  return performance.now();
+}
+
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;

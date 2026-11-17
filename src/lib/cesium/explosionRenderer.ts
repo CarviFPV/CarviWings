@@ -46,6 +46,10 @@ const PUFF_ID = "carviwings-explosion-puff";
 const MIN_ALPHA = 0.004;
 /** Nothing is drawn smaller than this across, metres. */
 const MIN_DIAMETER = 0.15;
+/** How far down the line of sight the warm-up's one puff is put, metres. */
+const PRIME_RANGE = 25;
+/** How opaque it is: enough to be drawn at all, and no more. */
+const PRIME_ALPHA = 0.02;
 
 const _ecef = vec3();
 
@@ -87,6 +91,44 @@ export class ExplosionRenderer {
       billboard.setImage(PUFF_ID, puffTexture);
       this.billboards.push(billboard);
     }
+  }
+
+  /**
+   * Puts one puff in front of the camera, so the collection is built now.
+   *
+   * A billboard collection with nothing showing has nothing to build: the
+   * vertex buffers are filled and the shader it is drawn with is compiled and
+   * linked in the first frame a puff is actually visible. Left alone, that
+   * frame is the one in which the first charge of the flight goes off — and a
+   * shader link is a tenth of a second with the picture standing still, at the
+   * exact moment the pilot is closest to what they came to see. So the warm-up
+   * shows one under the loading screen — a little way down the camera's own
+   * line of sight, because a shader is only linked when something drawn with
+   * it survives culling, and that is the one place certain to.
+   *
+   * It needs no taking down: the pool has nothing alive in it, and the first
+   * `draw` of the flight hides every billboard that has no particle behind it.
+   */
+  prime(): void {
+    const billboard = this.billboards[0];
+    if (!billboard) return;
+    const camera = this.scene.camera;
+    const eye = camera.positionWC;
+    const look = camera.directionWC;
+    this.scratchPosition.x = eye.x + look.x * PRIME_RANGE;
+    this.scratchPosition.y = eye.y + look.y * PRIME_RANGE;
+    this.scratchPosition.z = eye.z + look.z * PRIME_RANGE;
+    billboard.position = this.scratchPosition;
+    billboard.width = 1;
+    billboard.height = 1;
+    this.scratchColor.red = 1;
+    this.scratchColor.green = 1;
+    this.scratchColor.blue = 1;
+    // Enough to be drawn, and nothing anybody could see if the loading screen
+    // were not in the way.
+    this.scratchColor.alpha = PRIME_ALPHA;
+    billboard.color = this.scratchColor;
+    billboard.show = true;
   }
 
   /**
