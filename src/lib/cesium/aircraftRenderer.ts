@@ -26,6 +26,7 @@ import type * as Cesium from "cesium";
 import type { CesiumModule } from "./loadCesium";
 import type { EnuFrame } from "@/sim/geo/enuFrame";
 import type { AircraftState } from "@/sim/flight/state";
+import type { AircraftPose } from "@/sim/engine/renderPose";
 import { forwardAxis, leftAxis, upAxis } from "@/sim/math/quat";
 import { vec3 } from "@/sim/math/vec3";
 import type { Livery } from "@/sim/flight/livery";
@@ -387,20 +388,25 @@ export class AircraftRenderer {
    * Rewrites the model matrix from the aircraft's current position and
    * attitude. The body axes are rotated out of the local ENU frame into ECEF,
    * which is exactly what Cesium wants as the primitive's model matrix.
+   *
+   * `pose` is where to draw it, when that is not simply where the state is:
+   * the frame loop passes the pose carried forward between two physics steps,
+   * so the aircraft moves by as much as the clock did rather than by however
+   * many whole steps happened to fit in the frame.
    */
-  update(state: AircraftState): void {
+  update(state: AircraftState, pose: AircraftPose = state): void {
     const visual = this.visuals.get(state.id);
     if (!visual) return;
     const cesium = this.cesium;
 
-    forwardAxis(_fwd, state.orientation);
-    leftAxis(_left, state.orientation);
-    upAxis(_up, state.orientation);
+    forwardAxis(_fwd, pose.orientation);
+    leftAxis(_left, pose.orientation);
+    upAxis(_up, pose.orientation);
 
     this.frame.enuVectorToEcef(_fwd, _fwdEcef);
     this.frame.enuVectorToEcef(_left, _leftEcef);
     this.frame.enuVectorToEcef(_up, _upEcef);
-    this.frame.localToEcef(state.position, _originEcef);
+    this.frame.localToEcef(pose.position, _originEcef);
 
     // Column-major: the columns are where the body axes point in ECEF, each as
     // long as the airframe is wide. Scaling the columns scales the geometry

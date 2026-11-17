@@ -79,6 +79,8 @@ import type { TerrainSampler } from "../terrain/types";
 import type { WindField } from "../environment/wind";
 import type { VisibilitySystem } from "../environment/visibility";
 import type { VideoLink } from "../environment/videoLink";
+import type { AircraftPose } from "./renderPose";
+import { PoseInterpolator } from "./renderPose";
 
 /** Produces the control input for one aircraft each physics step. */
 export type AircraftController = (
@@ -251,6 +253,8 @@ export class Simulation {
   private readonly speedIntegral = { sum: 0, time: 0 };
 
   private accumulator = 0;
+  /** Where each aircraft is drawn between two steps. See `renderPose.ts`. */
+  private readonly poses = new PoseInterpolator();
   private terrainTimer = 0;
   private playerId: string | null = null;
   private selectedTargetId: string | null = null;
@@ -563,11 +567,28 @@ export class Simulation {
 
     this.accumulator += clamped;
     while (this.accumulator >= PHYSICS_TIMESTEP) {
+      this.poses.capture(this.aircraft);
       this.step(PHYSICS_TIMESTEP);
       this.accumulator -= PHYSICS_TIMESTEP;
     }
+    // What is left over is how far the clock has run past the last whole step,
+    // and it is what the picture is drawn at: a frame is almost never a whole
+    // number of steps long, and one drawn from the last step alone moves by a
+    // different amount every time.
+    this.poses.blend(this.aircraft, this.accumulator / PHYSICS_TIMESTEP);
 
     this.refreshTarget();
+  }
+
+  /**
+   * Where to draw `state`: its pose carried forward to the present moment.
+   *
+   * For whatever puts an aircraft on screen or points a camera from one, and
+   * for nothing else — the flight model, the AI and the mission all read the
+   * state itself, which is always on a whole step.
+   */
+  poseOf(state: AircraftState): AircraftPose {
+    return this.poses.poseOf(state);
   }
 
   private refreshTerrain(dt: number): void {

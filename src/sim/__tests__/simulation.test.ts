@@ -340,4 +340,104 @@ export async function runSimulationTests(): Promise<void> {
       `crosswind separates ground speed from airspeed (${telemetry.groundSpeed.toFixed(1)} vs ${telemetry.airspeed.toFixed(1)})`,
     );
   });
+
+  await suite("drawn pose between physics steps", async () => {
+    const frame = makeFrame();
+    const terrain = await makeTerrain(() => 0);
+    const fly = (hertz: number) => {
+      const simulation = new Simulation({ frame, terrain, missionRadius: 10000 });
+      const player = simulation.spawn(
+        {
+          id: "player",
+          role: AIRCRAFT_ROLE.Player,
+          config: PLAYER_WING,
+          position: V.vec3(0, 0, 500),
+          headingDeg: 0,
+          airspeed: 25,
+          throttle: 0.7,
+        },
+        () => level,
+      );
+      // Settle, then measure how far the aircraft moves from one frame to the
+      // next — as the flight model has it, and as it is drawn.
+      for (let i = 0; i < hertz; i += 1) simulation.update(1 / hertz);
+      const stepped = { low: Infinity, high: 0 };
+      const drawn = { low: Infinity, high: 0 };
+      const lastStepped = V.clone(player.position);
+      const lastDrawn = V.clone(simulation.poseOf(player).position);
+      for (let i = 0; i < hertz; i += 1) {
+        simulation.update(1 / hertz);
+        const pose = simulation.poseOf(player).position;
+        const a = V.distance(player.position, lastStepped);
+        const b = V.distance(pose, lastDrawn);
+        stepped.low = Math.min(stepped.low, a);
+        stepped.high = Math.max(stepped.high, a);
+        drawn.low = Math.min(drawn.low, b);
+        drawn.high = Math.max(drawn.high, b);
+        V.copy(lastStepped, player.position);
+        V.copy(lastDrawn, pose);
+      }
+      return { simulation, player, stepped, drawn };
+    };
+
+    // 144 Hz is one and two-thirds steps a frame: the state moves one step in
+    // some frames and two in others, and the drawn pose must not.
+    const fast = fly(144);
+    assert(
+      fast.stepped.high / fast.stepped.low > 1.8,
+      `the stepped state advances unevenly at 144 Hz (${fast.stepped.low.toFixed(3)}..${fast.stepped.high.toFixed(3)} m)`,
+    );
+    assert(
+      fast.drawn.high / fast.drawn.low < 1.05,
+      `the drawn pose advances evenly at 144 Hz (${fast.drawn.low.toFixed(4)}..${fast.drawn.high.toFixed(4)} m)`,
+    );
+
+    // 360 Hz is less than a step a frame: the state stands still in a third of
+    // them, and the drawn pose keeps moving.
+    const faster = fly(360);
+    assert(faster.stepped.low < 1e-9, "the stepped state stands still in some 360 Hz frames");
+    assert(
+      faster.drawn.high / faster.drawn.low < 1.05,
+      `the drawn pose advances evenly at 360 Hz (${faster.drawn.low.toFixed(4)}..${faster.drawn.high.toFixed(4)} m)`,
+    );
+
+    // Never ahead of the flight model, and never more than a step behind it.
+    const { simulation, player } = fast;
+    const lag = V.distance(simulation.poseOf(player).position, player.position);
+    assert(
+      lag <= V.length(player.velocity) / 240 + 1e-6,
+      `the drawn pose trails the state by at most one step (${lag.toFixed(4)} m)`,
+    );
+    const attitude = simulation.poseOf(player).orientation;
+    assertClose(
+      Math.hypot(attitude.x, attitude.y, attitude.z, attitude.w),
+      1,
+      1e-9,
+      "the drawn attitude is a unit quaternion",
+    );
+
+    // An airframe picked up and put somewhere else is drawn there, not
+    // streaking across the sky between the two places.
+    player.position.x += 500;
+    simulation.update(1 / 144);
+    assert(
+      V.distance(simulation.poseOf(player).position, player.position) < 1,
+      "a moved aircraft is drawn where it was moved to",
+    );
+
+    // One that has not been through a step yet is drawn where it is.
+    const late = simulation.spawn({
+      id: "late",
+      role: AIRCRAFT_ROLE.Enemy,
+      config: PLAYER_WING,
+      position: V.vec3(200, 0, 500),
+      headingDeg: 90,
+      airspeed: 25,
+      throttle: 0.7,
+    });
+    assert(
+      simulation.poseOf(late).position === late.position,
+      "a fresh spawn is drawn at its own state",
+    );
+  });
 }

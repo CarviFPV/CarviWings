@@ -4,8 +4,8 @@
  * Flight cameras.
  *
  * Cesium's camera is driven directly rather than through an entity tracker, so
- * the view is exactly where the flight model says it is with no interpolation
- * lag between the aircraft and what the pilot sees.
+ * the view is exactly where the aircraft is drawn, with no tracking lag between
+ * the airframe and what the pilot sees.
  *
  * Four modes:
  *  - FPV    — bolted to the camera mount on the nose, tilted up the way a pilot
@@ -21,6 +21,7 @@ import type * as Cesium from "cesium";
 import type { CesiumModule } from "./loadCesium";
 import type { EnuFrame } from "@/sim/geo/enuFrame";
 import type { AircraftState } from "@/sim/flight/state";
+import type { AircraftPose } from "@/sim/engine/renderPose";
 import { forwardAxis, rotateVector, upAxis } from "@/sim/math/quat";
 import { clamp, damp, DEG_TO_RAD, RAD_TO_DEG } from "@/sim/math/scalar";
 import type { Vec3 } from "@/sim/math/vec3";
@@ -266,7 +267,15 @@ export class CameraRig {
     return (a * 0.5 + b * 0.33 + c * 0.17);
   }
 
-  update(state: AircraftState, dt: number): void {
+  /**
+   * Points the camera for this frame.
+   *
+   * `pose` is where the aircraft is drawn, when that is not simply where the
+   * state is: the frame loop passes the pose carried forward between two
+   * physics steps, and the camera has to ride the same one the airframe is
+   * drawn at or the two would shake against each other.
+   */
+  update(state: AircraftState, dt: number, pose: AircraftPose = state): void {
     if (this.mode === CAMERA_MODE.Free) {
       // The mouse owns the camera here, so read the pose back out of Cesium
       // instead of writing it, and keep the HUD working either way.
@@ -275,9 +284,9 @@ export class CameraRig {
       return;
     }
     this.shakeTime += dt;
-    if (this.mode === CAMERA_MODE.Fpv) this.updateFpv(state, dt);
-    else if (this.mode === CAMERA_MODE.Ground) this.updateGround(state, dt);
-    else this.updateChase(state, dt);
+    if (this.mode === CAMERA_MODE.Fpv) this.updateFpv(state, dt, pose);
+    else if (this.mode === CAMERA_MODE.Ground) this.updateGround(pose, dt);
+    else this.updateChase(pose, dt);
     this.holdDetail();
   }
 
@@ -299,17 +308,21 @@ export class CameraRig {
     );
   }
 
-  private updateFpv(state: AircraftState, dt: number): void {
+  private updateFpv(
+    state: AircraftState,
+    dt: number,
+    pose: AircraftPose,
+  ): void {
     const settings = this.settings;
 
-    rotateVector(_worldOffset, state.orientation, this.fpvOffset);
-    V.add(_position, state.position, _worldOffset);
+    rotateVector(_worldOffset, pose.orientation, this.fpvOffset);
+    V.add(_position, pose.position, _worldOffset);
 
     // Look along the nose, tilted up the way an FPV camera is mounted.
     V.set(_bodyOffset, Math.cos(this.fpvTilt), 0, Math.sin(this.fpvTilt));
-    rotateVector(_direction, state.orientation, _bodyOffset);
+    rotateVector(_direction, pose.orientation, _bodyOffset);
     V.set(_bodyOffset, -Math.sin(this.fpvTilt), 0, Math.cos(this.fpvTilt));
-    rotateVector(_up, state.orientation, _bodyOffset);
+    rotateVector(_up, pose.orientation, _bodyOffset);
 
     // Vibration: scales with power and airspeed, hard-capped so it never fights
     // the pilot for control of the horizon.
@@ -320,7 +333,7 @@ export class CameraRig {
     if (intensity > 0.001) {
       const angular = 0.0035 * intensity;
       V.addScaled(_direction, _direction, _up, this.shakeAmount(state, 0) * angular);
-      upAxis(_bodyUp, state.orientation);
+      upAxis(_bodyUp, pose.orientation);
       V.cross(_right, _direction, _up);
       V.normalize(_right, _right);
       V.addScaled(_direction, _direction, _right, this.shakeAmount(state, 1) * angular);
@@ -333,13 +346,13 @@ export class CameraRig {
     void dt;
   }
 
-  private updateChase(state: AircraftState, dt: number): void {
+  private updateChase(pose: AircraftPose, dt: number): void {
     const settings = this.settings;
-    forwardAxis(_fwd, state.orientation);
+    forwardAxis(_fwd, pose.orientation);
 
     // Sit behind and above the aircraft, using world up rather than body up so
     // the horizon does not roll with the aircraft.
-    V.copy(_desired, state.position);
+    V.copy(_desired, pose.position);
     V.addScaled(_desired, _desired, _fwd, -settings.chaseDistance);
     _desired.z += settings.chaseHeight;
 
@@ -355,13 +368,13 @@ export class CameraRig {
     }
 
     // Aim slightly ahead of the aircraft so it sits below centre in the frame.
-    V.copy(_lookAt, state.position);
+    V.copy(_lookAt, pose.position);
     V.addScaled(_lookAt, _lookAt, _fwd, 4);
     V.subtract(_direction, _lookAt, this.chasePosition);
     V.normalize(_direction, _direction);
 
     // Blend a little body roll into the camera so hard banks still read.
-    upAxis(_bodyUp, state.orientation);
+    upAxis(_bodyUp, pose.orientation);
     V.set(_up, 0, 0, 1);
     V.lerpVec3(_up, _up, _bodyUp, 0.25);
     V.cross(_right, _direction, _up);
@@ -382,11 +395,11 @@ export class CameraRig {
    * at them half the time, and none of it survives a camera that follows the
    * aircraft around.
    */
-  private updateGround(state: AircraftState, dt: number): void {
+  private updateGround(pose: AircraftPose, dt: number): void {
     const station = this.station;
     if (!station) return;
 
-    V.subtract(_desired, state.position, station);
+    V.subtract(_desired, pose.position, station);
     const range = V.length(_desired);
     if (range > 1e-3) {
       V.scale(_desired, _desired, 1 / range);
